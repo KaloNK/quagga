@@ -455,11 +455,13 @@ struct peer
 #define PEER_CONFIG_TIMER             (1 << 1) /* keepalive & holdtime */
 #define PEER_CONFIG_CONNECT           (1 << 2) /* connect */
 #define PEER_CONFIG_ROUTEADV          (1 << 3) /* route advertise */
+#define PEER_CONFIG_REALM             (1 << 4) /* Default realm. */
   u_int32_t weight;
   u_int32_t holdtime;
   u_int32_t keepalive;
   u_int32_t connect;
   u_int32_t routeadv;
+  u_int32_t realm;
 
   /* Timer values. */
   u_int32_t v_start;
@@ -891,6 +893,11 @@ extern int bgp_confederation_peers_check (struct bgp *, as_t);
 
 extern int bgp_confederation_peers_add (struct bgp *, as_t);
 extern int bgp_confederation_peers_remove (struct bgp *, as_t);
+
+#ifdef SUPPORT_REALMS
+extern int peer_realm_set (struct peer *, u_int32_t);
+extern int peer_realm_unset (struct peer *);
+#endif
 
 extern int bgp_timers_set (struct bgp *, u_int32_t, u_int32_t);
 extern int bgp_timers_unset (struct bgp *);

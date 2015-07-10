@@ -85,6 +85,9 @@ struct attr_extra
   
   /* MP Nexthop length */
   u_char mp_nexthop_len;
+
+  /* Realm number */
+  u_int16_t realm;
 };
 
 /* BGP core attribute structure. */
