@@ -1806,7 +1806,7 @@ int
 rib_add_ipv4 (int type, int flags, struct prefix_ipv4 *p, 
 	      struct in_addr *gate, struct in_addr *src,
 	      unsigned int ifindex, vrf_id_t vrf_id, int table_id,
-	      u_int32_t metric, u_char distance, safi_t safi)
+	      u_int32_t metric, u_char distance, safi_t safi, u_int16_t realm)
 {
   struct rib *rib;
   struct rib *same = NULL;
@@ -1873,6 +1873,7 @@ rib_add_ipv4 (int type, int flags, struct prefix_ipv4 *p,
   rib->table = table_id;
   rib->nexthop_num = 0;
   rib->uptime = time (NULL);
+  rib->realm = realm;
 
   /* Nexthop settings. */
   if (gate)
@@ -2335,6 +2336,7 @@ static_install_ipv4 (safi_t safi, struct prefix *p, struct static_ipv4 *si)
       rib->vrf_id = si->vrf_id;
       rib->table = zebrad.rtm_table_default;
       rib->nexthop_num = 0;
+	  rib->realm = si->realm;
 
       switch (si->type)
         {
@@ -2438,7 +2440,7 @@ static_uninstall_ipv4 (safi_t safi, struct prefix *p, struct static_ipv4 *si)
 int
 static_add_ipv4_safi (safi_t safi, struct prefix *p, struct in_addr *gate,
 		      const char *ifname, u_char flags, u_char distance,
-		      vrf_id_t vrf_id)
+		      vrf_id_t vrf_id, u_int16_t realm)
 {
   u_char type = 0;
   struct route_node *rn;
@@ -2491,6 +2493,7 @@ static_add_ipv4_safi (safi_t safi, struct prefix *p, struct in_addr *gate,
   si->distance = distance;
   si->flags = flags;
   si->vrf_id = vrf_id;
+  si->realm = realm;
 
   if (gate)
     si->gate.ipv4 = *gate;
@@ -2597,8 +2600,8 @@ static_delete_ipv4_safi (safi_t safi, struct prefix *p, struct in_addr *gate,
 int
 rib_add_ipv6 (int type, int flags, struct prefix_ipv6 *p,
 	      struct in6_addr *gate, unsigned int ifindex,
-	      vrf_id_t vrf_id, int table_id,
-	      u_int32_t metric, u_char distance, safi_t safi)
+	      vrf_id_t vrf_id, int table_id, u_int32_t metric,
+		  u_char distance, safi_t safi, u_int16_t realm)
 {
   struct rib *rib;
   struct rib *same = NULL;
@@ -2658,6 +2661,7 @@ rib_add_ipv6 (int type, int flags, struct prefix_ipv6 *p,
   rib->table = table_id;
   rib->nexthop_num = 0;
   rib->uptime = time (NULL);
+  rib->realm = realm;
 
   /* Nexthop settings. */
   if (gate)
@@ -2883,6 +2887,7 @@ static_install_ipv6 (struct prefix *p, struct static_ipv6 *si)
       rib->vrf_id = si->vrf_id;
       rib->table = zebrad.rtm_table_default;
       rib->nexthop_num = 0;
+	  rib->realm = si->realm;
 
       switch (si->type)
 	{
@@ -2990,7 +2995,7 @@ static_uninstall_ipv6 (struct prefix *p, struct static_ipv6 *si)
 int
 static_add_ipv6 (struct prefix *p, u_char type, struct in6_addr *gate,
 		 const char *ifname, u_char flags, u_char distance,
-		 vrf_id_t vrf_id)
+		 vrf_id_t vrf_id, u_int16_t realm)
 {
   struct route_node *rn;
   struct static_ipv6 *si;
@@ -3033,6 +3038,7 @@ static_add_ipv6 (struct prefix *p, u_char type, struct in6_addr *gate,
   si->distance = distance;
   si->flags = flags;
   si->vrf_id = vrf_id;
+  si->realm = realm;
 
   switch (type)
     {

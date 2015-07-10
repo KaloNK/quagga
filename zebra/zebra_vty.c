@@ -42,7 +42,8 @@ static int
 zebra_static_ipv4_safi (struct vty *vty, safi_t safi, int add_cmd,
 			const char *dest_str, const char *mask_str,
 			const char *gate_str, const char *flag_str,
-			const char *distance_str, const char *vrf_id_str)
+			const char *distance_str, const char *vrf_id_str,
+			const char *realm_str)
 {
   int ret;
   u_char distance;
@@ -52,6 +53,22 @@ zebra_static_ipv4_safi (struct vty *vty, safi_t safi, int add_cmd,
   const char *ifname;
   u_char flag = 0;
   vrf_id_t vrf_id = VRF_DEFAULT;
+  u_int16_t realm = 0;
+
+#ifdef SUPPORT_REALMS
+  if (realm_str != NULL) {
+      u_int32_t realmid;
+      int res;
+
+      res = rtnl_rtrealm_a2n (&realmid, realm_str);
+      if (res < 0) {
+        vty_out (vty, "%%Realm '%s' not found in rt_realms has invalid value%s",
+            realm_str, VTY_NEWLINE);
+      return CMD_ERR_INCOMPLETE;
+    }
+    realm = (u_int16_t)realmid;
+  }
+#endif
   
   ret = str2prefix (dest_str, &p);
   if (ret <= 0)
@@ -94,7 +111,7 @@ zebra_static_ipv4_safi (struct vty *vty, safi_t safi, int add_cmd,
           return CMD_WARNING;
         }
       if (add_cmd)
-        static_add_ipv4_safi (safi, &p, NULL, NULL, ZEBRA_FLAG_BLACKHOLE, distance, vrf_id);
+        static_add_ipv4_safi (safi, &p, NULL, NULL, ZEBRA_FLAG_BLACKHOLE, distance, vrf_id, realm);
       else
         static_delete_ipv4_safi (safi, &p, NULL, NULL, distance, vrf_id);
       return CMD_SUCCESS;
@@ -120,7 +137,7 @@ zebra_static_ipv4_safi (struct vty *vty, safi_t safi, int add_cmd,
   if (gate_str == NULL)
   {
     if (add_cmd)
-      static_add_ipv4_safi (safi, &p, NULL, NULL, flag, distance, vrf_id);
+      static_add_ipv4_safi (safi, &p, NULL, NULL, flag, distance, vrf_id, realm);
     else
       static_delete_ipv4_safi (safi, &p, NULL, NULL, distance, vrf_id);
 
@@ -136,7 +153,7 @@ zebra_static_ipv4_safi (struct vty *vty, safi_t safi, int add_cmd,
     ifname = gate_str;
 
   if (add_cmd)
-    static_add_ipv4_safi (safi, &p, ifname ? NULL : &gate, ifname, flag, distance, vrf_id);
+    static_add_ipv4_safi (safi, &p, ifname ? NULL : &gate, ifname, flag, distance, vrf_id, realm);
   else
     static_delete_ipv4_safi (safi, &p, ifname ? NULL : &gate, ifname, distance, vrf_id);
 
@@ -150,7 +167,7 @@ zebra_static_ipv4 (struct vty *vty, int add_cmd, const char *dest_str,
 		   const char *vrf_id_str)
 {
   return zebra_static_ipv4_safi (vty, SAFI_UNICAST, add_cmd, dest_str, mask_str,
-                                 gate_str, flag_str, distance_str, vrf_id_str);
+                                 gate_str, flag_str, distance_str, vrf_id_str, NULL);
 }
 
 /* Static unicast routes for multicast RPF lookup. */
@@ -166,7 +183,7 @@ DEFUN (ip_mroute_dist,
 {
   VTY_WARN_EXPERIMENTAL();
   return zebra_static_ipv4_safi(vty, SAFI_MULTICAST, 1, argv[0], NULL, argv[1],
-                                NULL, argc > 2 ? argv[2] : NULL, NULL);
+                                NULL, argc > 2 ? argv[2] : NULL, NULL, NULL);
 }
 
 ALIAS (ip_mroute_dist,
@@ -192,7 +209,7 @@ DEFUN (ip_mroute_dist_vrf,
   VTY_WARN_EXPERIMENTAL();
   return zebra_static_ipv4_safi(vty, SAFI_MULTICAST, 1, argv[0], NULL, argv[1],
                                 NULL, argc > 3 ? argv[2] : NULL,
-                                argc > 3 ? argv[3] : argv[2]);
+                                argc > 3 ? argv[3] : argv[2], NULL);
 }
 
 ALIAS (ip_mroute_dist_vrf,
@@ -217,7 +234,7 @@ DEFUN (no_ip_mroute_dist,
 {
   VTY_WARN_EXPERIMENTAL();
   return zebra_static_ipv4_safi(vty, SAFI_MULTICAST, 0, argv[0], NULL, argv[1],
-                                NULL, argc > 2 ? argv[2] : NULL, NULL);
+                                NULL, argc > 2 ? argv[2] : NULL, NULL, NULL);
 }
 
 ALIAS (no_ip_mroute_dist,
@@ -244,8 +261,66 @@ DEFUN (no_ip_mroute_dist_vrf,
   VTY_WARN_EXPERIMENTAL();
   return zebra_static_ipv4_safi(vty, SAFI_MULTICAST, 0, argv[0], NULL, argv[1],
                                 NULL, argc > 3 ? argv[2] : NULL,
-                                argc > 3 ? argv[3] : argv[2]);
+                                argc > 3 ? argv[3] : argv[2], NULL);
 }
+
+#ifdef SUPPORT_REALMS
+DEFUN (ip_route_realm,
+       ip_route_realm_cmd,
+       "ip route A.B.C.D/M (A.B.C.D|INTERFACE) realm (<1-255>|WORD)",
+       IP_STR
+       "Establish static routes\n"
+       "IP destination prefix (e.g. 10.0.0.0/8)\n"
+       "IP gateway address\n"
+       "IP gateway interface name\n"
+       "Destination realm value or name\n")
+{
+  return zebra_static_ipv4_safi (vty, SAFI_UNICAST, 1, argv[0], NULL, argv[1],
+                                NULL, NULL, NULL, argv[2]);
+}
+
+DEFUN (ip_route_mask_realm,
+       ip_route_mask_realm_cmd,
+       "ip route A.B.C.D A.B.C.D (A.B.C.D|INTERFACE) realm (<1-255>|WORD)",
+       IP_STR
+       "Establish static routes\n"
+       "IP destination prefix\n"
+       "IP destination prefix mask\n"
+       "IP gateway address\n"
+       "IP gateway interface name\n"
+       "Destination realm value or name\n")
+{
+  return zebra_static_ipv4_safi (vty, SAFI_UNICAST, 1, argv[0], argv[1], argv[2], NULL, NULL, NULL, argv[3]);
+}
+
+DEFUN (ip_route_pref_realm,
+       ip_route_pref_realm_cmd,
+       "ip route A.B.C.D/M (A.B.C.D|INTERFACE) <1-255> realm (<1-255>|WORD)",
+       IP_STR
+       "Establish static routes\n"
+       "IP destination prefix (e.g. 10.0.0.0/8)\n"
+       "IP gateway address\n"
+       "IP gateway interface name\n"
+       "Distance value for this route\n"
+       "Destination realm value or name\n")
+{
+  return zebra_static_ipv4_safi (vty, SAFI_UNICAST, 1, argv[0], NULL, argv[1], NULL, argv[2], NULL, argv[3]);
+}
+ 
+DEFUN (ip_route_mask_pref_realm,
+       ip_route_mask_pref_realm_cmd,
+       "ip route A.B.C.D A.B.C.D (A.B.C.D|INTERFACE) <1-255> realm (<1-255>|WORD)",
+       IP_STR
+       "Establish static routes\n"
+       "IP destination prefix\n"
+       "IP destination prefix mask\n"
+       "IP gateway address\n"
+       "IP gateway interface name\n"
+       "Distance value for this route\n")
+{
+  return zebra_static_ipv4_safi (vty, SAFI_UNICAST, 1, argv[0], argv[1], argv[2], NULL, argv[3], NULL, argv[4]);
+}
+#endif /* SUPPORT_REALMS */
 
 ALIAS (no_ip_mroute_dist_vrf,
        no_ip_mroute_vrf_cmd,
@@ -1295,6 +1370,8 @@ vty_show_ip_route_detail (struct vty *vty, struct route_node *rn, int mcast)
         vty_out (vty, ", best");
       if (rib->refcnt)
         vty_out (vty, ", refcnt %ld", rib->refcnt);
+      if (rib->realm)
+       vty_out (vty, ", realm %5u", rib->realm);
       if (CHECK_FLAG (rib->flags, ZEBRA_FLAG_BLACKHOLE))
        vty_out (vty, ", blackhole");
       if (CHECK_FLAG (rib->flags, ZEBRA_FLAG_REJECT))
@@ -1380,6 +1457,13 @@ vty_show_ip_route_detail (struct vty *vty, struct route_node *rn, int mcast)
 
           if (CHECK_FLAG (nexthop->flags, NEXTHOP_FLAG_RECURSIVE))
             vty_out (vty, " (recursive)");
+
+#ifdef SUPPORT_REALMS
+          if (rib->realm) {
+            char realmbuf[50];
+            vty_out (vty, " realm %5s", rtnl_rtrealm_n2a (rib->realm, realmbuf, sizeof (realmbuf)));
+          }
+#endif
 
           switch (nexthop->type)
             {
@@ -1490,6 +1574,13 @@ vty_show_ip_route (struct vty *vty, struct route_node *rn, struct rib *rib)
 
       if (CHECK_FLAG (nexthop->flags, NEXTHOP_FLAG_RECURSIVE))
         vty_out (vty, " (recursive)");
+
+#ifdef SUPPORT_REALMS
+      if (rib->realm) {
+        char realmbuf[50];
+        vty_out (vty, " realm %5s", rtnl_rtrealm_n2a (rib->realm, realmbuf, sizeof (realmbuf)));
+      }
+#endif
 
       switch (nexthop->type)
         {
@@ -2443,6 +2534,13 @@ static_config_ipv4 (struct vty *vty, safi_t safi, const char *cmd)
             if (si->vrf_id != VRF_DEFAULT)
               vty_out (vty, " vrf %u", si->vrf_id);
 
+#ifdef SUPPORT_REALMS
+            if (si->realm) {
+              char realmbuf[11];
+              vty_out (vty, " realm %s", rtnl_rtrealm_n2a (si->realm, realmbuf, sizeof realmbuf));
+            }
+#endif
+
             vty_out (vty, "%s", VTY_NEWLINE);
 
             write = 1;
@@ -2569,7 +2667,7 @@ static int
 static_ipv6_func (struct vty *vty, int add_cmd, const char *dest_str,
 		  const char *gate_str, const char *ifname,
 		  const char *flag_str, const char *distance_str,
-		  const char *vrf_id_str)
+		  const char *vrf_id_str, const char *realm_str)
 {
   int ret;
   u_char distance;
@@ -2579,6 +2677,22 @@ static_ipv6_func (struct vty *vty, int add_cmd, const char *dest_str,
   u_char type = 0;
   vrf_id_t vrf_id = VRF_DEFAULT;
   u_char flag = 0;
+  u_int16_t realm = 0;
+
+#ifdef SUPPORT_REALMS
+  if (realm_str != NULL) {
+      u_int32_t realmid;
+      int res;
+
+      res = rtnl_rtrealm_a2n (&realmid, realm_str);
+      if (res < 0) {
+        vty_out (vty, "%%Realm '%s' not found in rt_realms has invalid value%s",
+            realm_str, VTY_NEWLINE);
+      return CMD_ERR_INCOMPLETE;
+    }
+    realm = (u_int16_t)realmid;
+  }
+#endif
   
   ret = str2prefix (dest_str, &p);
   if (ret <= 0)
@@ -2648,7 +2762,7 @@ static_ipv6_func (struct vty *vty, int add_cmd, const char *dest_str,
     VTY_GET_INTEGER ("VRF ID", vrf_id, vrf_id_str);
 
   if (add_cmd)
-    static_add_ipv6 (&p, type, gate, ifname, flag, distance, vrf_id);
+    static_add_ipv6 (&p, type, gate, ifname, flag, distance, vrf_id, realm);
   else
     static_delete_ipv6 (&p, type, gate, ifname, distance, vrf_id);
 
@@ -2665,7 +2779,7 @@ DEFUN (ipv6_route,
        "IPv6 gateway interface name\n")
 {
   return static_ipv6_func (vty, 1, argv[0], argv[1], NULL, NULL, NULL,
-                           NULL);
+                           NULL, NULL);
 }
 
 DEFUN (ipv6_route_flags,
@@ -2680,7 +2794,7 @@ DEFUN (ipv6_route_flags,
        "Silently discard pkts when matched\n")
 {
   return static_ipv6_func (vty, 1, argv[0], argv[1], NULL, argv[2], NULL,
-                           NULL);
+                           NULL, NULL);
 }
 
 DEFUN (ipv6_route_ifname,
@@ -2693,7 +2807,7 @@ DEFUN (ipv6_route_ifname,
        "IPv6 gateway interface name\n")
 {
   return static_ipv6_func (vty, 1, argv[0], argv[1], argv[2], NULL, NULL,
-                           NULL);
+                           NULL, NULL);
 }
 
 DEFUN (ipv6_route_ifname_flags,
@@ -2708,7 +2822,7 @@ DEFUN (ipv6_route_ifname_flags,
        "Silently discard pkts when matched\n")
 {
   return static_ipv6_func (vty, 1, argv[0], argv[1], argv[2], argv[3], NULL,
-                           NULL);
+                           NULL, NULL);
 }
 
 DEFUN (ipv6_route_pref,
@@ -2722,7 +2836,7 @@ DEFUN (ipv6_route_pref,
        "Distance value for this prefix\n")
 {
   return static_ipv6_func (vty, 1, argv[0], argv[1], NULL, NULL, argv[2],
-                           NULL);
+                           NULL, NULL);
 }
 
 DEFUN (ipv6_route_flags_pref,
@@ -2738,7 +2852,7 @@ DEFUN (ipv6_route_flags_pref,
        "Distance value for this prefix\n")
 {
   return static_ipv6_func (vty, 1, argv[0], argv[1], NULL, argv[2], argv[3],
-                           NULL);
+                           NULL, NULL);
 }
 
 DEFUN (ipv6_route_ifname_pref,
@@ -2752,7 +2866,7 @@ DEFUN (ipv6_route_ifname_pref,
        "Distance value for this prefix\n")
 {
   return static_ipv6_func (vty, 1, argv[0], argv[1], argv[2], NULL, argv[3],
-                           NULL);
+                           NULL, NULL);
 }
 
 DEFUN (ipv6_route_ifname_flags_pref,
@@ -2768,8 +2882,65 @@ DEFUN (ipv6_route_ifname_flags_pref,
        "Distance value for this prefix\n")
 {
   return static_ipv6_func (vty, 1, argv[0], argv[1], argv[2], argv[3], argv[4],
-                           NULL);
+                           NULL, NULL);
 }
+
+#ifdef SUPPORT_REALMS
+DEFUN (ipv6_route_realm,
+       ipv6_route_realm_cmd,
+       "ipv6 route X:X::X:X/M (X:X::X:X|INTERFACE) realm (<1-255>|WORD)",
+       IP_STR
+       "Establish static routes\n"
+       "IPv6 destination prefix (e.g. 3ffe:506::/32)\n"
+       "IPv6 gateway address\n"
+       "IPv6 gateway interface name\n"
+       "Destination realm value or name\n")
+{
+  return static_ipv6_func (vty, 1, argv[0], argv[1], NULL, NULL, NULL,
+                           NULL, argv[2]);
+}
+
+DEFUN (ipv6_route_ifname_realm,
+       ipv6_route_ifname_realm_cmd,
+       "ipv6 route X:X::X:X/M X:X::X:X INTERFACE realm (<1-255>|WORD)",
+       IP_STR
+       "Establish static routes\n"
+       "IPv6 destination prefix (e.g. 3ffe:506::/32)\n"
+       "IPv6 gateway address\n"
+       "IPv6 gateway interface name\n")
+{
+  return static_ipv6_func (vty, 1, argv[0], argv[1], argv[2], NULL, NULL,
+                           NULL, argv[3]);
+}
+
+DEFUN (ipv6_route_pref_realm,
+       ipv6_route_pref_realm_cmd,
+       "ipv6 route X:X::X:X/M (X:X::X:X|INTERFACE) <1-255> realm (<1-255>|WORD)",
+       IP_STR
+       "Establish static routes\n"
+       "IPv6 destination prefix (e.g. 3ffe:506::/32)\n"
+       "IPv6 gateway address\n"
+       "IPv6 gateway interface name\n"
+       "Distance value for this prefix\n")
+{
+  return static_ipv6_func (vty, 1, argv[0], argv[1], NULL, NULL, argv[2],
+                           NULL, argv[3]);
+}
+
+DEFUN (ipv6_route_ifname_pref_realm,
+       ipv6_route_ifname_pref_realm_cmd,
+       "ipv6 route X:X::X:X/M X:X::X:X INTERFACE <1-255> realm (<1-255>|WORD)",
+       IP_STR
+       "Establish static routes\n"
+       "IPv6 destination prefix (e.g. 3ffe:506::/32)\n"
+       "IPv6 gateway address\n"
+       "IPv6 gateway interface name\n"
+       "Distance value for this prefix\n")
+{
+  return static_ipv6_func (vty, 1, argv[0], argv[1], argv[2], NULL, argv[3],
+                           NULL, argv[4]);
+}
+#endif /* SUPPORT_REALMS */
 
 DEFUN (no_ipv6_route,
        no_ipv6_route_cmd,
@@ -2782,7 +2953,7 @@ DEFUN (no_ipv6_route,
        "IPv6 gateway interface name\n")
 {
   return static_ipv6_func (vty, 0, argv[0], argv[1], NULL, NULL, NULL,
-                           NULL);
+                           NULL, NULL);
 }
 
 ALIAS (no_ipv6_route,
@@ -2808,7 +2979,7 @@ DEFUN (no_ipv6_route_ifname,
        "IPv6 gateway interface name\n")
 {
   return static_ipv6_func (vty, 0, argv[0], argv[1], argv[2], NULL, NULL,
-                           NULL);
+                           NULL, NULL);
 }
 
 ALIAS (no_ipv6_route_ifname,
@@ -2835,7 +3006,7 @@ DEFUN (no_ipv6_route_pref,
        "Distance value for this prefix\n")
 {
   return static_ipv6_func (vty, 0, argv[0], argv[1], NULL, NULL, argv[2],
-                           NULL);
+                           NULL, NULL);
 }
 
 DEFUN (no_ipv6_route_flags_pref,
@@ -2853,7 +3024,7 @@ DEFUN (no_ipv6_route_flags_pref,
 {
   /* We do not care about argv[2] */
   return static_ipv6_func (vty, 0, argv[0], argv[1], NULL, argv[2], argv[3],
-                           NULL);
+                           NULL, NULL);
 }
 
 DEFUN (no_ipv6_route_ifname_pref,
@@ -2868,7 +3039,7 @@ DEFUN (no_ipv6_route_ifname_pref,
        "Distance value for this prefix\n")
 {
   return static_ipv6_func (vty, 0, argv[0], argv[1], argv[2], NULL, argv[3],
-                           NULL);
+                           NULL, NULL);
 }
 
 DEFUN (no_ipv6_route_ifname_flags_pref,
@@ -2885,7 +3056,7 @@ DEFUN (no_ipv6_route_ifname_flags_pref,
        "Distance value for this prefix\n")
 {
   return static_ipv6_func (vty, 0, argv[0], argv[1], argv[2], argv[3], argv[4],
-                           NULL);
+                           NULL, NULL);
 }
 
 DEFUN (ipv6_route_vrf,
@@ -2899,7 +3070,7 @@ DEFUN (ipv6_route_vrf,
        VRF_CMD_HELP_STR)
 {
   return static_ipv6_func (vty, 1, argv[0], argv[1], NULL, NULL, NULL,
-                           argv[2]);
+                           argv[2], NULL);
 }
 
 DEFUN (ipv6_route_flags_vrf,
@@ -2915,7 +3086,7 @@ DEFUN (ipv6_route_flags_vrf,
        VRF_CMD_HELP_STR)
 {
   return static_ipv6_func (vty, 1, argv[0], argv[1], NULL, argv[2], NULL,
-                           argv[3]);
+                           argv[3], NULL);
 }
 
 DEFUN (ipv6_route_ifname_vrf,
@@ -2929,7 +3100,7 @@ DEFUN (ipv6_route_ifname_vrf,
        VRF_CMD_HELP_STR)
 {
   return static_ipv6_func (vty, 1, argv[0], argv[1], argv[2], NULL, NULL,
-                           argv[3]);
+                           argv[3], NULL);
 }
 
 DEFUN (ipv6_route_ifname_flags_vrf,
@@ -2945,7 +3116,7 @@ DEFUN (ipv6_route_ifname_flags_vrf,
        VRF_CMD_HELP_STR)
 {
   return static_ipv6_func (vty, 1, argv[0], argv[1], argv[2], argv[3], NULL,
-                           argv[4]);
+                           argv[4], NULL);
 }
 
 DEFUN (ipv6_route_pref_vrf,
@@ -2960,7 +3131,7 @@ DEFUN (ipv6_route_pref_vrf,
        VRF_CMD_HELP_STR)
 {
   return static_ipv6_func (vty, 1, argv[0], argv[1], NULL, NULL, argv[2],
-                           argv[3]);
+                           argv[3], NULL);
 }
 
 DEFUN (ipv6_route_flags_pref_vrf,
@@ -2977,7 +3148,7 @@ DEFUN (ipv6_route_flags_pref_vrf,
        VRF_CMD_HELP_STR)
 {
   return static_ipv6_func (vty, 1, argv[0], argv[1], NULL, argv[2], argv[3],
-                           argv[4]);
+                           argv[4], NULL);
 }
 
 DEFUN (ipv6_route_ifname_pref_vrf,
@@ -2992,7 +3163,7 @@ DEFUN (ipv6_route_ifname_pref_vrf,
        VRF_CMD_HELP_STR)
 {
   return static_ipv6_func (vty, 1, argv[0], argv[1], argv[2], NULL, argv[3],
-                           argv[4]);
+                           argv[4], NULL);
 }
 
 DEFUN (ipv6_route_ifname_flags_pref_vrf,
@@ -3009,7 +3180,7 @@ DEFUN (ipv6_route_ifname_flags_pref_vrf,
        VRF_CMD_HELP_STR)
 {
   return static_ipv6_func (vty, 1, argv[0], argv[1], argv[2], argv[3], argv[4],
-                           argv[5]);
+                           argv[5], NULL);
 }
 
 DEFUN (no_ipv6_route_vrf,
@@ -3024,7 +3195,7 @@ DEFUN (no_ipv6_route_vrf,
        VRF_CMD_HELP_STR)
 {
   return static_ipv6_func (vty, 0, argv[0], argv[1], NULL, NULL, NULL,
-                           (argc > 3) ? argv[3] : argv[2]);
+                           (argc > 3) ? argv[3] : argv[2], NULL);
 }
 
 ALIAS (no_ipv6_route_vrf,
@@ -3052,7 +3223,7 @@ DEFUN (no_ipv6_route_ifname_vrf,
        VRF_CMD_HELP_STR)
 {
   return static_ipv6_func (vty, 0, argv[0], argv[1], argv[2], NULL, NULL,
-                           (argc > 4) ? argv[4] : argv[3]);
+                           (argc > 4) ? argv[4] : argv[3], NULL);
 }
 
 ALIAS (no_ipv6_route_ifname_vrf,
@@ -3081,7 +3252,7 @@ DEFUN (no_ipv6_route_pref_vrf,
        VRF_CMD_HELP_STR)
 {
   return static_ipv6_func (vty, 0, argv[0], argv[1], NULL, NULL, argv[2],
-                           argv[3]);
+                           argv[3], NULL);
 }
 
 DEFUN (no_ipv6_route_flags_pref_vrf,
@@ -3100,7 +3271,7 @@ DEFUN (no_ipv6_route_flags_pref_vrf,
 {
   /* We do not care about argv[2] */
   return static_ipv6_func (vty, 0, argv[0], argv[1], NULL, argv[2], argv[3],
-                           argv[4]);
+                           argv[4], NULL);
 }
 
 DEFUN (no_ipv6_route_ifname_pref_vrf,
@@ -3116,7 +3287,7 @@ DEFUN (no_ipv6_route_ifname_pref_vrf,
        VRF_CMD_HELP_STR)
 {
   return static_ipv6_func (vty, 0, argv[0], argv[1], argv[2], NULL, argv[3],
-                           argv[4]);
+                           argv[4], NULL);
 }
 
 DEFUN (no_ipv6_route_ifname_flags_pref_vrf,
@@ -3134,7 +3305,7 @@ DEFUN (no_ipv6_route_ifname_flags_pref_vrf,
        VRF_CMD_HELP_STR)
 {
   return static_ipv6_func (vty, 0, argv[0], argv[1], argv[2], argv[3], argv[4],
-                           argv[5]);
+                           argv[5], NULL);
 }
 
 DEFUN (show_ipv6_route,
@@ -3856,6 +4027,13 @@ static_config_ipv6 (struct vty *vty)
             if (si->vrf_id != VRF_DEFAULT)
               vty_out (vty, " vrf %u", si->vrf_id);
 
+#ifdef SUPPORT_REALMS
+            if (si->realm) {
+              char realmbuf[11];
+
+              vty_out (vty, " realm %s", rtnl_rtrealm_n2a (si->realm, realmbuf, sizeof realmbuf));
+            }
+#endif
             vty_out (vty, "%s", VTY_NEWLINE);
 
             write = 1;
@@ -3954,6 +4132,19 @@ zebra_vty_init (void)
   install_element (CONFIG_NODE, &no_ip_route_flags_distance2_cmd);
   install_element (CONFIG_NODE, &no_ip_route_mask_flags_distance_cmd);
   install_element (CONFIG_NODE, &no_ip_route_mask_flags_distance2_cmd);
+
+#ifdef SUPPORT_REALMS
+  install_element (CONFIG_NODE, &ip_route_realm_cmd);
+  install_element (CONFIG_NODE, &ip_route_mask_realm_cmd);
+  install_element (CONFIG_NODE, &ip_route_pref_realm_cmd);
+  install_element (CONFIG_NODE, &ip_route_mask_pref_realm_cmd);
+#ifdef HAVE_IPV6
+  install_element (CONFIG_NODE, &ipv6_route_realm_cmd);
+  install_element (CONFIG_NODE, &ipv6_route_ifname_realm_cmd);
+  install_element (CONFIG_NODE, &ipv6_route_pref_realm_cmd);
+  install_element (CONFIG_NODE, &ipv6_route_ifname_pref_realm_cmd);
+#endif /* HAVE_IPV6 */
+#endif /* SUPPORT_REALMS */
 
   install_element (VIEW_NODE, &show_ip_route_cmd);
   install_element (VIEW_NODE, &show_ip_route_addr_cmd);
