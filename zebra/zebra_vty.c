@@ -55,7 +55,6 @@ zebra_static_ipv4_safi (struct vty *vty, safi_t safi, int add_cmd,
   vrf_id_t vrf_id = VRF_DEFAULT;
   u_int16_t realm = 0;
 
-#ifdef SUPPORT_REALMS
   if (realm_str != NULL) {
       u_int32_t realmid;
       int res;
@@ -68,7 +67,6 @@ zebra_static_ipv4_safi (struct vty *vty, safi_t safi, int add_cmd,
     }
     realm = (u_int16_t)realmid;
   }
-#endif
   
   ret = str2prefix (dest_str, &p);
   if (ret <= 0)
@@ -1458,12 +1456,10 @@ vty_show_ip_route_detail (struct vty *vty, struct route_node *rn, int mcast)
           if (CHECK_FLAG (nexthop->flags, NEXTHOP_FLAG_RECURSIVE))
             vty_out (vty, " (recursive)");
 
-#ifdef SUPPORT_REALMS
           if (rib->realm) {
             char realmbuf[50];
             vty_out (vty, " realm %5s", rtnl_rtrealm_n2a (rib->realm, realmbuf, sizeof (realmbuf)));
           }
-#endif
 
           switch (nexthop->type)
             {
@@ -1575,12 +1571,10 @@ vty_show_ip_route (struct vty *vty, struct route_node *rn, struct rib *rib)
       if (CHECK_FLAG (nexthop->flags, NEXTHOP_FLAG_RECURSIVE))
         vty_out (vty, " (recursive)");
 
-#ifdef SUPPORT_REALMS
       if (rib->realm) {
         char realmbuf[50];
         vty_out (vty, " realm %5s", rtnl_rtrealm_n2a (rib->realm, realmbuf, sizeof (realmbuf)));
       }
-#endif
 
       switch (nexthop->type)
         {
@@ -2534,12 +2528,10 @@ static_config_ipv4 (struct vty *vty, safi_t safi, const char *cmd)
             if (si->vrf_id != VRF_DEFAULT)
               vty_out (vty, " vrf %u", si->vrf_id);
 
-#ifdef SUPPORT_REALMS
             if (si->realm) {
               char realmbuf[11];
               vty_out (vty, " realm %s", rtnl_rtrealm_n2a (si->realm, realmbuf, sizeof realmbuf));
             }
-#endif
 
             vty_out (vty, "%s", VTY_NEWLINE);
 
@@ -2679,7 +2671,6 @@ static_ipv6_func (struct vty *vty, int add_cmd, const char *dest_str,
   u_char flag = 0;
   u_int16_t realm = 0;
 
-#ifdef SUPPORT_REALMS
   if (realm_str != NULL) {
       u_int32_t realmid;
       int res;
@@ -2692,7 +2683,6 @@ static_ipv6_func (struct vty *vty, int add_cmd, const char *dest_str,
     }
     realm = (u_int16_t)realmid;
   }
-#endif
   
   ret = str2prefix (dest_str, &p);
   if (ret <= 0)
@@ -4027,13 +4017,11 @@ static_config_ipv6 (struct vty *vty)
             if (si->vrf_id != VRF_DEFAULT)
               vty_out (vty, " vrf %u", si->vrf_id);
 
-#ifdef SUPPORT_REALMS
             if (si->realm) {
               char realmbuf[11];
 
               vty_out (vty, " realm %s", rtnl_rtrealm_n2a (si->realm, realmbuf, sizeof realmbuf));
             }
-#endif
             vty_out (vty, "%s", VTY_NEWLINE);
 
             write = 1;

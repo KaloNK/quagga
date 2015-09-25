@@ -1439,10 +1439,8 @@ peer_group2peer_config_copy (struct peer_group *group, struct peer *peer,
   /* Weight */
   peer->weight = conf->weight;
 
-#ifdef CONFIG_REALMS
   /* Realm */
   peer->realm = conf->realm;
-#endif
 
   /* peer flags apply */
   peer->flags = conf->flags;
@@ -3230,7 +3228,6 @@ peer_weight_unset (struct peer *peer)
   return 0;
 }
 
-#ifdef SUPPORT_REALMS
 /* neighbor realm. */
 int
 peer_realm_set (struct peer *peer, u_int32_t realm)
@@ -3278,7 +3275,6 @@ peer_realm_unset (struct peer *peer)
     }
   return 0;
 }
-#endif /* SUPPORT_REALMS */
 
 int
 peer_timers_set (struct peer *peer, u_int32_t keepalive, u_int32_t holdtime)

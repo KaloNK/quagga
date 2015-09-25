@@ -894,10 +894,8 @@ extern int bgp_confederation_peers_check (struct bgp *, as_t);
 extern int bgp_confederation_peers_add (struct bgp *, as_t);
 extern int bgp_confederation_peers_remove (struct bgp *, as_t);
 
-#ifdef SUPPORT_REALMS
 extern int peer_realm_set (struct peer *, u_int32_t);
 extern int peer_realm_unset (struct peer *);
-#endif
 
 extern int bgp_timers_set (struct bgp *, u_int32_t, u_int32_t);
 extern int bgp_timers_unset (struct bgp *);

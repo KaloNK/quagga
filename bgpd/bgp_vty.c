@@ -7894,7 +7894,6 @@ bgp_show_peer (struct vty *vty, struct peer *p)
 
   vty_out (vty, "%s", VTY_NEWLINE);
 
-#ifdef SUPPORT_REALMS
   /* Default realm */
   if (CHECK_FLAG (p->config, PEER_CONFIG_REALM))
   {
@@ -7905,7 +7904,6 @@ bgp_show_peer (struct vty *vty, struct peer *p)
   }
 
   vty_out (vty, "%s", VTY_NEWLINE);
-#endif
 
   /* Address Family Information */
   for (afi = AFI_IP ; afi < AFI_MAX ; afi++)

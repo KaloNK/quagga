@@ -691,15 +691,12 @@ bgp_input_modifier (struct peer *peer, struct prefix *p, struct attr *attr,
   struct bgp_filter *filter;
   struct bgp_info info;
   route_map_result_t ret;
-#ifdef SUPPORT_REALMS
   u_int16_t realm_value = 0;
 
 
   /* Apply default realm value. */
   realm_value = (u_int16_t)(peer->realm & 0xFFFF);
   (bgp_attr_extra_get (attr))->realm = realm_value;
-
-#endif
 
   filter = &peer->filter[afi][safi];
 
@@ -735,15 +732,12 @@ bgp_export_modifier (struct peer *rsclient, struct peer *peer,
   struct bgp_filter *filter;
   struct bgp_info info;
   route_map_result_t ret;
-#ifdef SUPPORT_REALMS
   u_int16_t realm_value = 0;
 
 
   /* Apply default realm value. */
   realm_value = (u_int16_t)(peer->realm & 0xFFFF);
   (bgp_attr_extra_get (attr))->realm = realm_value;
-
-#endif
 
   filter = &peer->filter[afi][safi];
 

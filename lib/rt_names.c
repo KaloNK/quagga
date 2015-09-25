@@ -38,6 +38,7 @@
 #include <log.h>
 #include <sys/inotify.h>
 
+#ifdef SUPPORT_REALMS
 static void rtnl_tab_initialize(const char *file, char **tab, int size)
 {
 	int i;
@@ -191,3 +192,17 @@ int rtnl_rtrealm_a2n(u_int32_t *id, const char *arg)
 	*id = res;
 	return 0;
 }
+#else
+
+const char * rtnl_rtrealm_n2a(int id, char *buf, int len)
+{
+	snprintf(buf, len, "%d", id);
+	return buf;
+}
+
+int rtnl_rtrealm_a2n(u_int32_t *id, const char *arg)
+{
+	return 0;
+}
+
+#endif
