@@ -39,7 +39,6 @@
 #include "pim_join.h"
 #include "pim_assert.h"
 #include "pim_msg.h"
-#include "pim_rand.h"
 
 static int on_pim_hello_send(struct thread *t);
 static int pim_hello_send(struct interface *ifp,
@@ -212,9 +211,6 @@ int pim_pim_packet(struct interface *ifp, uint8_t *buf, size_t len)
                  ip_hdr->ip_src,
                  pim_msg + PIM_MSG_HEADER_LEN,
                  pim_msg_len - PIM_MSG_HEADER_LEN);
-    if (!result) {
-      pim_if_dr_election(ifp); /* PIM Hello message is received */
-    }
     return result;
   }
 
@@ -686,7 +682,7 @@ void pim_hello_restart_triggered(struct interface *ifp)
   }
   zassert(!pim_ifp->t_pim_hello_timer);
 
-  random_msec = pim_rand_next(0, triggered_hello_delay_msec);
+  random_msec = random() % (triggered_hello_delay_msec + 1);
 
   if (PIM_DEBUG_PIM_EVENTS) {
     zlog_debug("Scheduling %d msec triggered hello on interface %s",
@@ -702,6 +698,7 @@ int pim_sock_add(struct interface *ifp)
 {
   struct pim_interface *pim_ifp;
   struct in_addr ifaddr;
+  uint32_t old_genid;
 
   pim_ifp = ifp->info;
   zassert(pim_ifp);
@@ -724,7 +721,18 @@ int pim_sock_add(struct interface *ifp)
   pim_ifp->t_pim_sock_read   = 0;
   pim_ifp->pim_sock_creation = pim_time_monotonic_sec();
 
-  pim_ifp->pim_generation_id = pim_rand() & (int64_t) 0xFFFFFFFF;
+  /*
+   * Just ensure that the new generation id
+   * actually chooses something different.
+   * Actually ran across a case where this
+   * happened, pre-switch to random().
+   * While this is unlikely to happen now
+   * let's make sure it doesn't.
+   */
+  old_genid = pim_ifp->pim_generation_id;
+
+  while (old_genid == pim_ifp->pim_generation_id)
+    pim_ifp->pim_generation_id = random();
 
   zlog_info("PIM INTERFACE UP: on interface %s ifindex=%d",
 	    ifp->name, ifp->ifindex);

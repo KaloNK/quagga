@@ -112,8 +112,15 @@ ospf_router_id_update (struct ospf *ospf)
   if (!IPV4_ADDR_SAME (&router_id_old, &router_id))
     {
       for (ALL_LIST_ELEMENTS_RO (ospf->oiflist, node, oi))
-        /* Update self-neighbor's router_id. */
-        oi->nbr_self->router_id = router_id;
+	{
+	  /* Some nbrs are identified by router_id, these needs
+	   * to be rebuilt. Possible optimization would be to do
+	   * oi->nbr_self->router_id = router_id for
+	   * !(virtual | ptop) links
+	   */
+	  ospf_nbr_delete(oi->nbr_self);
+	  ospf_nbr_add_self(oi);
+	}
 
       /* If AS-external-LSA is queued, then flush those LSAs. */
       if (router_id_old.s_addr == 0 && ospf->external_origin)
@@ -1550,6 +1557,8 @@ ospf_nbr_nbma_set (struct ospf *ospf, struct in_addr nbr_addr)
   p.prefixlen = IPV4_MAX_BITLEN;
 
   rn = route_node_get (ospf->nbr_nbma, (struct prefix *)&p);
+  if (rn->info)
+    route_unlock_node (rn);
   rn->info = nbr_nbma;
 
   for (ALL_LIST_ELEMENTS_RO (ospf->oiflist, node, oi))
