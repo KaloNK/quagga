@@ -1927,6 +1927,9 @@ ospf_snmp_vl_add (struct ospf_vl_data *vl_data)
   lp.adv_router = vl_data->vl_peer;
 
   rn = route_node_get (ospf_snmp_vl_table, (struct prefix *) &lp);
+  if (rn->info)
+    route_unlock_node (rn);
+
   rn->info = vl_data;
 }
 
@@ -1991,7 +1994,9 @@ ospf_snmp_vl_lookup_next (struct in_addr *area_id, struct in_addr *neighbor,
     rn = route_top (ospf_snmp_vl_table);
   else
     {
-      rn = route_node_get (ospf_snmp_vl_table, (struct prefix *) &lp);
+      rn = route_node_lookup (ospf_snmp_vl_table, (struct prefix *) &lp);
+      if (!rn)
+	return NULL;
       rn = route_next (rn);
     }
 
