@@ -206,6 +206,20 @@ int pim_pim_packet(struct interface *ifp, uint8_t *buf, size_t len)
 	       pim_version, pim_type, pim_msg_len, checksum);
   }
 
+  if (pim_type == PIM_MSG_TYPE_REGISTER  ||
+      pim_type == PIM_MSG_TYPE_REG_STOP  ||
+      pim_type == PIM_MSG_TYPE_BOOTSTRAP ||
+      pim_type == PIM_MSG_TYPE_GRAFT     ||
+      pim_type == PIM_MSG_TYPE_GRAFT_ACK ||
+      pim_type == PIM_MSG_TYPE_CANDIDATE)
+    {
+      if (PIM_DEBUG_PIM_PACKETS) {
+	zlog_debug("Recv PIM packet type %d which is not currently understood",
+		   pim_type);
+      }
+      return -1;
+    }
+
   if (pim_type == PIM_MSG_TYPE_HELLO) {
     int result = pim_hello_recv(ifp,
                  ip_hdr->ip_src,
@@ -371,6 +385,7 @@ static int pim_sock_open(struct in_addr ifaddr, int ifindex)
     return -1;
 
   if (pim_socket_join(fd, qpim_all_pim_routers_addr, ifaddr, ifindex)) {
+    close(fd);
     return -2;
   }
 
@@ -506,7 +521,7 @@ static int hello_send(struct interface *ifp,
 
   pim_ifp = ifp->info;
 
-  if (PIM_DEBUG_PIM_PACKETS || PIM_DEBUG_PIM_HELLO) {
+  if (PIM_DEBUG_PIM_HELLO) {
     char dst_str[100];
     pim_inet4_dump("<dst?>", qpim_all_pim_routers_addr, dst_str, sizeof(dst_str));
     zlog_debug("%s: to %s on %s: holdt=%u prop_d=%u overr_i=%u dis_join_supp=%d dr_prio=%u gen_id=%08x addrs=%d",
@@ -546,8 +561,10 @@ static int hello_send(struct interface *ifp,
 		   pim_msg,
 		   pim_msg_size,
 		   ifp->name)) {
-    zlog_warn("%s: could not send PIM message on interface %s",
-	      __PRETTY_FUNCTION__, ifp->name);
+    if (PIM_DEBUG_PIM_HELLO) {
+      zlog_debug("%s: could not send PIM message on interface %s",
+		 __PRETTY_FUNCTION__, ifp->name);
+    }
     return -2;
   }
 
@@ -566,8 +583,10 @@ static int pim_hello_send(struct interface *ifp,
   if (hello_send(ifp, holdtime)) {
     ++pim_ifp->pim_ifstat_hello_sendfail;
 
-    zlog_warn("Could not send PIM hello on interface %s",
-	      ifp->name);
+    if (PIM_DEBUG_PIM_HELLO) {
+      zlog_warn("Could not send PIM hello on interface %s",
+		ifp->name);
+    }
     return -1;
   }
 
@@ -584,7 +603,7 @@ static void hello_resched(struct interface *ifp)
   pim_ifp = ifp->info;
   zassert(pim_ifp);
 
-  if (PIM_DEBUG_PIM_TRACE) {
+  if (PIM_DEBUG_PIM_HELLO) {
     zlog_debug("Rescheduling %d sec hello on interface %s",
 	       pim_ifp->pim_hello_period, ifp->name);
   }
@@ -684,7 +703,7 @@ void pim_hello_restart_triggered(struct interface *ifp)
 
   random_msec = random() % (triggered_hello_delay_msec + 1);
 
-  if (PIM_DEBUG_PIM_EVENTS) {
+  if (PIM_DEBUG_PIM_HELLO) {
     zlog_debug("Scheduling %d msec triggered hello on interface %s",
 	       random_msec, ifp->name);
   }

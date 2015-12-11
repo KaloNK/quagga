@@ -1290,6 +1290,8 @@ vty_show_ip_route_detail (struct vty *vty, struct route_node *rn, int mcast)
               VTY_NEWLINE);
       vty_out (vty, "  Known via \"%s\"", zebra_route_string (rib->type));
       vty_out (vty, ", distance %u, metric %u", rib->distance, rib->metric);
+      if (rib->mtu)
+        vty_out (vty, ", mtu %u", rib->mtu);
       vty_out (vty, ", vrf %u", rib->vrf_id);
       if (CHECK_FLAG (rib->flags, ZEBRA_FLAG_SELECTED))
         vty_out (vty, ", best");
@@ -2394,7 +2396,7 @@ static int
 static_config_ipv4 (struct vty *vty, safi_t safi, const char *cmd)
 {
   struct route_node *rn;
-  struct static_ipv4 *si;  
+  struct static_route *si;  
   struct route_table *stable;
   struct zebra_vrf *zvrf;
   vrf_iter_t iter;
@@ -2417,10 +2419,10 @@ static_config_ipv4 (struct vty *vty, safi_t safi, const char *cmd)
             switch (si->type)
               {
                 case STATIC_IPV4_GATEWAY:
-                  vty_out (vty, " %s", inet_ntoa (si->gate.ipv4));
+                  vty_out (vty, " %s", inet_ntoa (si->addr.ipv4));
                   break;
                 case STATIC_IPV4_IFNAME:
-                  vty_out (vty, " %s", si->gate.ifname);
+                  vty_out (vty, " %s", si->ifname);
                   break;
                 case STATIC_IPV4_BLACKHOLE:
                   vty_out (vty, " Null0");
@@ -3725,7 +3727,7 @@ static int
 static_config_ipv6 (struct vty *vty)
 {
   struct route_node *rn;
-  struct static_ipv6 *si;  
+  struct static_route *si;  
   int write;
   char buf[BUFSIZ];
   struct route_table *stable;
@@ -3749,14 +3751,14 @@ static_config_ipv6 (struct vty *vty)
               {
               case STATIC_IPV6_GATEWAY:
                 vty_out (vty, " %s",
-                         inet_ntop (AF_INET6, &si->ipv6, buf, BUFSIZ));
+                         inet_ntop (AF_INET6, &si->addr.ipv6, buf, BUFSIZ));
                 break;
               case STATIC_IPV6_IFNAME:
                 vty_out (vty, " %s", si->ifname);
                 break;
               case STATIC_IPV6_GATEWAY_IFNAME:
                 vty_out (vty, " %s %s",
-                         inet_ntop (AF_INET6, &si->ipv6, buf, BUFSIZ),
+                         inet_ntop (AF_INET6, &si->addr.ipv6, buf, BUFSIZ),
                          si->ifname);
                 break;
               }
