@@ -910,6 +910,12 @@ zread_ipv4_add (struct zserv *client, u_short length, vrf_id_t vrf_id)
 
   /* Table */
   rib->table=zebrad.rtm_table_default;
+
+  if (CHECK_FLAG (message, ZAPI_MESSAGE_REALM))
+    rib->realm = stream_getw (s);
+  else
+    rib->realm = 0;
+
   rib_add_ipv4_multipath (&p, rib, safi);
   return 0;
 }
@@ -1103,14 +1109,19 @@ zread_ipv6_add (struct zserv *client, u_short length, vrf_id_t vrf_id)
   else
     api.mtu = 0;
     
+  if (CHECK_FLAG (api.message, ZAPI_MESSAGE_REALM))
+    api.realm = stream_getw (s);
+  else
+    api.realm = 0;
+
   if (IN6_IS_ADDR_UNSPECIFIED (&nexthop))
     rib_add_ipv6 (api.type, api.flags, &p, NULL, ifindex,
                   vrf_id, zebrad.rtm_table_default, api.metric,
-                  api.mtu, api.distance, api.safi);
+                  api.mtu, api.distance, api.safi, api.realm);
   else
     rib_add_ipv6 (api.type, api.flags, &p, &nexthop, ifindex,
                   vrf_id, zebrad.rtm_table_default, api.metric,
-                  api.mtu, api.distance, api.safi);
+                  api.mtu, api.distance, api.safi, api.realm);
   return 0;
 }
 

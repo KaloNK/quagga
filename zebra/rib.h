@@ -88,6 +88,9 @@ struct rib
   u_char nexthop_num;
   u_char nexthop_active_num;
   u_char nexthop_fib_num;
+
+  /* Realm information */
+  u_int16_t realm;
 };
 
 /* meta-queue structure:
@@ -204,6 +207,9 @@ struct static_route
  see ZEBRA_FLAG_REJECT
      ZEBRA_FLAG_BLACKHOLE
  */
+
+  /* Realm information */
+  u_int16_t realm;
 };
 
 enum nexthop_types_t
@@ -459,7 +465,7 @@ extern struct route_table *zebra_vrf_static_table (afi_t, safi_t, vrf_id_t);
 extern int rib_add_ipv4 (int type, int flags, struct prefix_ipv4 *p, 
 			 struct in_addr *gate, struct in_addr *src,
 			 unsigned int ifindex, vrf_id_t vrf_id, int table_id,
-			 u_int32_t, u_int32_t, u_char, safi_t);
+			 u_int32_t, u_int32_t, u_char, safi_t, u_int16_t realm);
 
 extern int rib_add_ipv4_multipath (struct prefix_ipv4 *, struct rib *, safi_t);
 
@@ -487,7 +493,7 @@ extern unsigned long rib_score_proto (u_char proto);
 extern int
 static_add_ipv4_safi (safi_t safi, struct prefix *p, struct in_addr *gate,
 		      const char *ifname, u_char flags, u_char distance,
-		      vrf_id_t vrf_id);
+		      vrf_id_t vrf_id, u_int16_t realm);
 extern int
 static_delete_ipv4_safi (safi_t safi, struct prefix *p, struct in_addr *gate,
 			 const char *ifname, u_char distance, vrf_id_t vrf_id);
@@ -496,7 +502,7 @@ extern int
 rib_add_ipv6 (int type, int flags, struct prefix_ipv6 *p,
 	      struct in6_addr *gate, unsigned int ifindex, vrf_id_t vrf_id,
 	      int table_id, u_int32_t metric, u_int32_t mtu,
-	      u_char distance, safi_t safi);
+	      u_char distance, safi_t safi, u_int16_t realm);
 
 extern int
 rib_delete_ipv6 (int type, int flags, struct prefix_ipv6 *p,
@@ -511,7 +517,7 @@ extern struct route_table *rib_table_ipv6;
 extern int
 static_add_ipv6 (struct prefix *p, u_char type, struct in6_addr *gate,
 		 const char *ifname, u_char flags, u_char distance,
-		 vrf_id_t vrf_id);
+		 vrf_id_t vrf_id, u_int16_t realm);
 
 extern int
 static_delete_ipv6 (struct prefix *p, u_char type, struct in6_addr *gate,

@@ -562,6 +562,8 @@ zapi_ipv4_route (u_char cmd, struct zclient *zclient, struct prefix_ipv4 *p,
     stream_putc (s, api->distance);
   if (CHECK_FLAG (api->message, ZAPI_MESSAGE_METRIC))
     stream_putl (s, api->metric);
+  if (CHECK_FLAG (api->message, ZAPI_MESSAGE_REALM))
+    stream_putw (s, api->realm);
   if (CHECK_FLAG (api->message, ZAPI_MESSAGE_MTU))
     stream_putl (s, api->mtu);
 
@@ -618,6 +620,8 @@ zapi_ipv6_route (u_char cmd, struct zclient *zclient, struct prefix_ipv6 *p,
     stream_putc (s, api->distance);
   if (CHECK_FLAG (api->message, ZAPI_MESSAGE_METRIC))
     stream_putl (s, api->metric);
+  if (CHECK_FLAG (api->message, ZAPI_MESSAGE_REALM))
+    stream_putw (s, api->realm);
   if (CHECK_FLAG (api->message, ZAPI_MESSAGE_MTU))
     stream_putl (s, api->mtu);
 

@@ -381,6 +381,7 @@ attrhash_key_make (void *p)
       MIX(extra->weight);
       MIX(extra->mp_nexthop_global_in.s_addr);
       MIX(extra->originator_id.s_addr);
+      MIX(extra->realm);
     }
   
   if (attr->aspath)
@@ -428,6 +429,7 @@ attrhash_cmp (const void *p1, const void *p2)
           && ae1->aggregator_as == ae2->aggregator_as
           && ae1->aggregator_addr.s_addr == ae2->aggregator_addr.s_addr
           && ae1->weight == ae2->weight
+          && ae1->realm == ae2->realm
 #ifdef HAVE_IPV6
           && ae1->mp_nexthop_len == ae2->mp_nexthop_len
           && IPV6_ADDR_SAME (&ae1->mp_nexthop_global, &ae2->mp_nexthop_global)

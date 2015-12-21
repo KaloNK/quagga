@@ -673,6 +673,7 @@ netlink_routing_table (struct sockaddr_nl *snl, struct nlmsghdr *h,
   void *dest;
   void *gate;
   void *src;
+  u_int16_t realm = 0;
 
   rtm = NLMSG_DATA (h);
 
@@ -731,6 +732,16 @@ netlink_routing_table (struct sockaddr_nl *snl, struct nlmsghdr *h,
   if (tb[RTA_PRIORITY])
     metric = *(int *) RTA_DATA(tb[RTA_PRIORITY]);
 
+#ifdef SUPPORT_REALMS
+  if (tb[RTA_FLOW])
+  {
+    u_int32_t rta_flow;
+
+    rta_flow = *(u_int32_t *) RTA_DATA (tb[RTA_FLOW]);
+    realm = rta_flow & 0xFFFF;
+  }
+#endif
+
   if (tb[RTA_METRICS])
     {
       struct rtattr *mxrta[RTAX_MAX+1];
@@ -752,7 +763,7 @@ netlink_routing_table (struct sockaddr_nl *snl, struct nlmsghdr *h,
 
       if (!tb[RTA_MULTIPATH])
           rib_add_ipv4 (ZEBRA_ROUTE_KERNEL, flags, &p, gate, src, index,
-                        vrf_id, table, metric, mtu, 0, SAFI_UNICAST);
+                        vrf_id, table, metric, mtu, 0, SAFI_UNICAST, realm);
       else
         {
           /* This is a multipath route */
@@ -773,6 +784,7 @@ netlink_routing_table (struct sockaddr_nl *snl, struct nlmsghdr *h,
           rib->table = table;
           rib->nexthop_num = 0;
           rib->uptime = time (NULL);
+          rib->realm = realm;
 
           for (;;)
             {
@@ -819,7 +831,7 @@ netlink_routing_table (struct sockaddr_nl *snl, struct nlmsghdr *h,
       p.prefixlen = rtm->rtm_dst_len;
 
       rib_add_ipv6 (ZEBRA_ROUTE_KERNEL, flags, &p, gate, index, vrf_id,
-                    table, metric, mtu, 0, SAFI_UNICAST);
+                    table, metric, mtu, 0, SAFI_UNICAST, realm);
     }
 #endif /* HAVE_IPV6 */
 
@@ -860,6 +872,7 @@ netlink_route_change (struct sockaddr_nl *snl, struct nlmsghdr *h,
   void *dest;
   void *gate;
   void *src;
+  u_int16_t realm = 0;
 
   rtm = NLMSG_DATA (h);
 
@@ -934,6 +947,16 @@ netlink_route_change (struct sockaddr_nl *snl, struct nlmsghdr *h,
   if (tb[RTA_PREFSRC])
     src = RTA_DATA (tb[RTA_PREFSRC]);
 
+#ifdef SUPPORT_REALMS
+  if (tb[RTA_FLOW])
+  {
+	u_int32_t rta_flow;
+
+    rta_flow = *(u_int32_t *) RTA_DATA (tb[RTA_FLOW]);
+    realm = rta_flow & 0xFFFF;
+  }
+#endif
+
   if (h->nlmsg_type == RTM_NEWROUTE)
     {
       if (tb[RTA_PRIORITY])
@@ -971,7 +994,7 @@ netlink_route_change (struct sockaddr_nl *snl, struct nlmsghdr *h,
         {
           if (!tb[RTA_MULTIPATH])
             rib_add_ipv4 (ZEBRA_ROUTE_KERNEL, 0, &p, gate, src, index, vrf_id,
-                          table, metric, mtu, 0, SAFI_UNICAST);
+                          table, metric, mtu, 0, SAFI_UNICAST, realm);
           else
             {
               /* This is a multipath route */
@@ -992,6 +1015,7 @@ netlink_route_change (struct sockaddr_nl *snl, struct nlmsghdr *h,
               rib->table = table;
               rib->nexthop_num = 0;
               rib->uptime = time (NULL);
+			  rib->realm = realm;
 
               for (;;)
                 {
@@ -1053,7 +1077,7 @@ netlink_route_change (struct sockaddr_nl *snl, struct nlmsghdr *h,
 
       if (h->nlmsg_type == RTM_NEWROUTE)
         rib_add_ipv6 (ZEBRA_ROUTE_KERNEL, 0, &p, gate, index, vrf_id, table,
-                      metric, mtu, 0, SAFI_UNICAST);
+                      metric, mtu, 0, SAFI_UNICAST, realm);
       else
         rib_delete_ipv6 (ZEBRA_ROUTE_KERNEL, 0, &p, gate, index, vrf_id,
                          SAFI_UNICAST);
@@ -1664,6 +1688,12 @@ netlink_route_multipath (int cmd, struct prefix *p, struct rib *rib,
 
   /* Metric. */
   addattr32 (&req.n, sizeof req, RTA_PRIORITY, rib->metric);
+
+#ifdef SUPPORT_REALMS
+  if (rib->realm) {
+      addattr32 (&req.n, sizeof req, RTA_FLOW, rib->realm);
+    }
+#endif
 
   if (rib->mtu || rib->nexthop_mtu)
     {

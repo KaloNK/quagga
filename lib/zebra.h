@@ -254,6 +254,7 @@ typedef int socklen_t;
 #include "zassert.h"
 #include "str.h"
 
+#include "rt_names.h"
 
 #ifdef HAVE_BROKEN_CMSG_FIRSTHDR
 /* This bug is present in Solaris 8 and pre-patch Solaris 9 <sys/socket.h>;
