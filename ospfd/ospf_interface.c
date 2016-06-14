@@ -232,8 +232,8 @@ ospf_if_new (struct ospf *ospf, struct interface *ifp, struct prefix *p)
   /* Set default values. */
   ospf_if_reset_variables (oi);
 
-  /* Add pseudo neighbor. */
-  oi->nbr_self = ospf_nbr_new (oi);
+  /* Set pseudo neighbor to Null */
+  oi->nbr_self = NULL;
 
   oi->ls_upd_queue = route_table_init ();
   oi->t_ls_upd_event = NULL;
@@ -241,9 +241,7 @@ ospf_if_new (struct ospf *ospf, struct interface *ifp, struct prefix *p)
 
   oi->crypt_seqnum = time (NULL);
 
-#ifdef HAVE_OPAQUE_LSA
   ospf_opaque_type9_lsa_init (oi);
-#endif /* HAVE_OPAQUE_LSA */
 
   oi->ospf = ospf;
   
@@ -305,9 +303,7 @@ ospf_if_free (struct ospf_interface *oi)
 
   assert (oi->state == ISM_Down);
 
-#ifdef HAVE_OPAQUE_LSA
   ospf_opaque_type9_lsa_term (oi);
-#endif /* HAVE_OPAQUE_LSA */
 
   /* Free Pseudo Neighbour */
   ospf_nbr_delete (oi->nbr_self);
@@ -686,9 +682,7 @@ ospf_if_new_hook (struct interface *ifp)
   SET_IF_PARAM (IF_DEF_PARAMS (ifp), auth_type);
   IF_DEF_PARAMS (ifp)->auth_type = OSPF_AUTH_NOTSET;
   
-#ifdef HAVE_OPAQUE_LSA
   rc = ospf_opaque_new_if (ifp);
-#endif /* HAVE_OPAQUE_LSA */
   return rc;
 }
 
@@ -697,9 +691,7 @@ ospf_if_delete_hook (struct interface *ifp)
 {
   int rc = 0;
   struct route_node *rn;
-#ifdef HAVE_OPAQUE_LSA
   rc = ospf_opaque_del_if (ifp);
-#endif /* HAVE_OPAQUE_LSA */
 
   route_table_finish (IF_OIFS (ifp));
 
@@ -910,7 +902,9 @@ ospf_vl_new (struct ospf *ospf, struct ospf_vl_data *vl_data)
   if (IS_DEBUG_OSPF_EVENT)
     zlog_debug ("ospf_vl_new(): set associated area to the backbone");
 
-  ospf_nbr_add_self (voi);
+  /* Add pseudo neighbor. */
+  ospf_nbr_self_reset (voi);
+
   ospf_area_add_if (voi->area, voi);
 
   ospf_if_stream_set (voi);

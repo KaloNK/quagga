@@ -213,6 +213,7 @@ ospf6_zebra_read_ipv6 (int command, struct zclient *zclient,
   unsigned long ifindex;
   struct prefix_ipv6 p;
   struct in6_addr *nexthop;
+  unsigned char plength = 0;
 
   s = zclient->ibuf;
   ifindex = 0;
@@ -227,7 +228,8 @@ ospf6_zebra_read_ipv6 (int command, struct zclient *zclient,
   /* IPv6 prefix. */
   memset (&p, 0, sizeof (struct prefix_ipv6));
   p.family = AF_INET6;
-  p.prefixlen = stream_getc (s);
+  plength = stream_getc (s);
+  p.prefixlen = MIN(IPV6_MAX_PREFIXLEN, plength);
   stream_get (&p.prefix, s, PSIZE (p.prefixlen));
 
   /* Nexthop, ifindex, distance, metric. */
@@ -368,7 +370,7 @@ ospf6_zebra_route_update (int type, struct ospf6_route *request)
   char buf[64];
   int nhcount;
   struct in6_addr **nexthops;
-  unsigned int *ifindexes;
+  ifindex_t *ifindexes;
   int i, ret = 0;
   struct prefix_ipv6 *dest;
 

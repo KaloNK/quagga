@@ -294,9 +294,7 @@ ospf_get ()
       if (ospf->router_id_static.s_addr == 0)
 	ospf_router_id_update (ospf);
 
-#ifdef HAVE_OPAQUE_LSA
       ospf_opaque_type11_lsa_init (ospf);
-#endif /* HAVE_OPAQUE_LSA */
     }
 
   return ospf;
@@ -429,9 +427,7 @@ ospf_finish_final (struct ospf *ospf)
   struct listnode *node, *nnode;
   int i;
 
-#ifdef HAVE_OPAQUE_LSA
   ospf_opaque_type11_lsa_term (ospf);
-#endif /* HAVE_OPAQUE_LSA */
   
   /* be nice if this worked, but it doesn't */
   /*ospf_flush_self_originated_lsas_now (ospf);*/
@@ -507,17 +503,13 @@ ospf_finish_final (struct ospf *ospf)
   OSPF_TIMER_OFF (ospf->t_lsa_refresher);
   OSPF_TIMER_OFF (ospf->t_read);
   OSPF_TIMER_OFF (ospf->t_write);
-#ifdef HAVE_OPAQUE_LSA
   OSPF_TIMER_OFF (ospf->t_opaque_lsa_self);
-#endif
 
   close (ospf->fd);
   stream_free(ospf->ibuf);
    
-#ifdef HAVE_OPAQUE_LSA
   LSDB_LOOP (OPAQUE_AS_LSDB (ospf), rn, lsa)
     ospf_discard_from_db (ospf, ospf->lsdb, lsa);
-#endif /* HAVE_OPAQUE_LSA */
   LSDB_LOOP (EXTERNAL_LSDB (ospf), rn, lsa)
     ospf_discard_from_db (ospf, ospf->lsdb, lsa);
 
@@ -609,9 +601,7 @@ ospf_area_new (struct ospf *ospf, struct in_addr area_id)
   /* Self-originated LSAs initialize. */
   new->router_lsa_self = NULL;
 
-#ifdef HAVE_OPAQUE_LSA
   ospf_opaque_type10_lsa_init (new);
-#endif /* HAVE_OPAQUE_LSA */
 
   new->oiflist = list_new ();
   new->ranges = route_table_init ();
@@ -640,12 +630,10 @@ ospf_area_free (struct ospf_area *area)
 
   LSDB_LOOP (NSSA_LSDB (area), rn, lsa)
     ospf_discard_from_db (area->ospf, area->lsdb, lsa);
-#ifdef HAVE_OPAQUE_LSA
   LSDB_LOOP (OPAQUE_AREA_LSDB (area), rn, lsa)
     ospf_discard_from_db (area->ospf, area->lsdb, lsa);
   LSDB_LOOP (OPAQUE_LINK_LSDB (area), rn, lsa)
     ospf_discard_from_db (area->ospf, area->lsdb, lsa);
-#endif /* HAVE_OPAQUE_LSA */
 
   ospf_lsdb_delete_all (area->lsdb);
   ospf_lsdb_free (area->lsdb);
@@ -663,9 +651,7 @@ ospf_area_free (struct ospf_area *area)
 
   /* Cancel timer. */
   OSPF_TIMER_OFF (area->t_stub_router);
-#ifdef HAVE_OPAQUE_LSA
   OSPF_TIMER_OFF (area->t_opaque_lsa_self);
-#endif /* HAVE_OPAQUE_LSA */
   
   if (OSPF_IS_AREA_BACKBONE (area))
     area->ospf->backbone = NULL;
@@ -768,9 +754,6 @@ add_ospf_interface (struct connected *co, struct ospf_area *area)
   oi->params = ospf_lookup_if_params (co->ifp, oi->address->u.prefix4);
   oi->output_cost = ospf_if_get_output_cost (oi);
 
-  /* Add pseudo neighbor. */
-  ospf_nbr_add_self (oi);
-
   /* Relate ospf interface to ospf instance. */
   oi->ospf = area->ospf;
 
@@ -778,6 +761,9 @@ add_ospf_interface (struct connected *co, struct ospf_area *area)
   /* If network type is specified previously,
      skip network type setting. */
   oi->type = IF_DEF_PARAMS (co->ifp)->type;
+
+  /* Add pseudo neighbor. */
+  ospf_nbr_self_reset (oi);
 
   ospf_area_add_if (oi->area, oi);
 
