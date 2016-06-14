@@ -329,7 +329,7 @@ isis_zebra_route_add_ipv6 (struct prefix *prefix,
 {
   struct zapi_ipv6 api;
   struct in6_addr **nexthop_list;
-  unsigned int *ifindex_list;
+  ifindex_t *ifindex_list;
   struct isis_nexthop6 *nexthop6;
   int i, size;
   struct listnode *node;
@@ -365,7 +365,7 @@ isis_zebra_route_add_ipv6 (struct prefix *prefix,
 
   /* allocate memory for ifindex_list */
   size = sizeof (unsigned int) * listcount (route_info->nexthops6);
-  ifindex_list = (unsigned int *) XMALLOC (MTYPE_ISIS_TMP, size);
+  ifindex_list = (ifindex_t *) XMALLOC (MTYPE_ISIS_TMP, size);
   if (!ifindex_list)
     {
       zlog_err ("isis_zebra_add_route_ipv6: out of memory!");
@@ -415,7 +415,7 @@ isis_zebra_route_del_ipv6 (struct prefix *prefix,
 {
   struct zapi_ipv6 api;
   struct in6_addr **nexthop_list;
-  unsigned int *ifindex_list;
+  ifindex_t *ifindex_list;
   struct isis_nexthop6 *nexthop6;
   int i, size;
   struct listnode *node;
@@ -445,7 +445,7 @@ isis_zebra_route_del_ipv6 (struct prefix *prefix,
 
   /* allocate memory for ifindex_list */
   size = sizeof (unsigned int) * listcount (route_info->nexthops6);
-  ifindex_list = (unsigned int *) XMALLOC (MTYPE_ISIS_TMP, size);
+  ifindex_list = (ifindex_t *) XMALLOC (MTYPE_ISIS_TMP, size);
   if (!ifindex_list)
     {
       zlog_err ("isis_zebra_route_del_ipv6: out of memory!");
@@ -529,6 +529,7 @@ isis_zebra_read_ipv4 (int command, struct zclient *zclient,
   struct prefix *p_generic = (struct prefix*)&p;
   unsigned long ifindex __attribute__ ((unused));
   struct in_addr nexthop __attribute__ ((unused));
+  unsigned char plength = 0;
 
   stream = zclient->ibuf;
   memset(&api, 0, sizeof(api));
@@ -541,7 +542,8 @@ isis_zebra_read_ipv4 (int command, struct zclient *zclient,
   api.message = stream_getc (stream);
 
   p.family = AF_INET;
-  p.prefixlen = stream_getc (stream);
+  plength = stream_getc (stream);
+  p.prefixlen = MIN(IPV4_MAX_PREFIXLEN, plength);
   stream_get (&p.prefix, stream, PSIZE (p.prefixlen));
 
   if (CHECK_FLAG (api.message, ZAPI_MESSAGE_NEXTHOP))

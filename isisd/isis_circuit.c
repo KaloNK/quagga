@@ -640,7 +640,7 @@ isis_circuit_up (struct isis_circuit *circuit)
       zlog_err("Interface MTU %zu on %s is too low to support area lsp mtu %u!",
                isis_circuit_pdu_size(circuit), circuit->interface->name,
                circuit->area->lsp_mtu);
-      isis_circuit_down(circuit);
+      isis_circuit_update_all_srmflags(circuit, 0);
       return ISIS_ERROR;
     }
 
@@ -649,15 +649,6 @@ isis_circuit_up (struct isis_circuit *circuit)
       /*
        * Get the Hardware Address
        */
-#ifdef HAVE_STRUCT_SOCKADDR_DL
-#ifndef SUNOS_5
-      if (circuit->interface->sdl.sdl_alen != ETHER_ADDR_LEN)
-        zlog_warn ("unsupported link layer");
-      else
-        memcpy (circuit->u.bc.snpa, LLADDR (&circuit->interface->sdl),
-                ETH_ALEN);
-#endif
-#else
       if (circuit->interface->hw_addr_len != ETH_ALEN)
         {
           zlog_warn ("unsupported link layer");
@@ -671,7 +662,6 @@ isis_circuit_up (struct isis_circuit *circuit)
                   circuit->interface->ifindex, ISO_MTU (circuit),
                   snpa_print (circuit->u.bc.snpa));
 #endif /* EXTREME_DEBUG */
-#endif /* HAVE_STRUCT_SOCKADDR_DL */
 
       circuit->u.bc.adjdb[0] = list_new ();
       circuit->u.bc.adjdb[1] = list_new ();
@@ -1308,6 +1298,8 @@ DEFUN (ip_router_isis,
   vty->node = INTERFACE_NODE;
   vty->index = ifp;
 
+  if (circuit->ipv6_router)
+    lsp_regenerate_schedule(circuit->area, circuit->is_type, 0);
   return rv;
 }
 
@@ -1349,10 +1341,10 @@ DEFUN (no_ip_router_isis,
 
   circuit->ip_router = 0;
   area->ip_circuits--;
-#ifdef HAVE_IPV6
   if (circuit->ipv6_router == 0)
-#endif
     isis_csm_state_change (ISIS_DISABLE, circuit, area);
+  else
+    lsp_regenerate_schedule(area, circuit->is_type, 0);
 
   return CMD_SUCCESS;
 }
@@ -1416,6 +1408,8 @@ DEFUN (ipv6_router_isis,
   vty->node = INTERFACE_NODE;
   vty->index = ifp;
 
+  if (circuit->ip_router)
+    lsp_regenerate_schedule(circuit->area, circuit->is_type, 0);
   return rv;
 }
 
@@ -1459,6 +1453,8 @@ DEFUN (no_ipv6_router_isis,
   area->ipv6_circuits--;
   if (circuit->ip_router == 0)
     isis_csm_state_change (ISIS_DISABLE, circuit, area);
+  else
+    lsp_regenerate_schedule(area, circuit->is_type, 0);
 
   return CMD_SUCCESS;
 }

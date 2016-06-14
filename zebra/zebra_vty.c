@@ -1368,6 +1368,10 @@ vty_show_ip_route_detail (struct vty *vty, struct route_node *rn, int mcast)
       vty_out (vty, ", vrf %u", rib->vrf_id);
       if (CHECK_FLAG (rib->flags, ZEBRA_FLAG_SELECTED))
         vty_out (vty, ", best");
+      if (CHECK_FLAG (rib->flags, ZEBRA_FLAG_FIB_OVERRIDE))
+        vty_out (vty, ", fib-override");
+      if (CHECK_FLAG (rib->status, RIB_ENTRY_SELECTED_FIB))
+        vty_out (vty, ", fib");
       if (rib->refcnt)
         vty_out (vty, ", refcnt %ld", rib->refcnt);
 #ifdef SUPPORT_REALMS
@@ -1414,7 +1418,8 @@ vty_show_ip_route_detail (struct vty *vty, struct route_node *rn, int mcast)
 
       for (ALL_NEXTHOPS_RO(rib->nexthop, nexthop, tnexthop, recursing))
         {
-          vty_out (vty, "  %c%s",
+          vty_out (vty, "  %c%c%s",
+                   CHECK_FLAG (nexthop->flags, NEXTHOP_FLAG_ACTIVE) ? '>' : ' ',
                    CHECK_FLAG (nexthop->flags, NEXTHOP_FLAG_FIB) ? '*' : ' ',
                    recursing ? "  " : "");
 
@@ -4057,6 +4062,7 @@ zebra_vty_init (void)
   install_element (CONFIG_NODE, &no_ip_route_distance_cmd);
   install_element (CONFIG_NODE, &no_ip_route_flags_distance_cmd);
   install_element (CONFIG_NODE, &no_ip_route_flags_distance2_cmd);
+  install_element (CONFIG_NODE, &no_ip_route_mask_distance_cmd);
   install_element (CONFIG_NODE, &no_ip_route_mask_flags_distance_cmd);
   install_element (CONFIG_NODE, &no_ip_route_mask_flags_distance2_cmd);
 
@@ -4110,6 +4116,7 @@ zebra_vty_init (void)
   install_element (CONFIG_NODE, &no_ip_route_distance_vrf_cmd);
   install_element (CONFIG_NODE, &no_ip_route_flags_distance_vrf_cmd);
   install_element (CONFIG_NODE, &no_ip_route_flags_distance2_vrf_cmd);
+  install_element (CONFIG_NODE, &no_ip_route_mask_distance_vrf_cmd);
   install_element (CONFIG_NODE, &no_ip_route_mask_flags_distance_vrf_cmd);
   install_element (CONFIG_NODE, &no_ip_route_mask_flags_distance2_vrf_cmd);
 
