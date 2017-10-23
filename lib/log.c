@@ -53,6 +53,7 @@ const char *zlog_proto_names[] =
   "ISIS",
   "PIM",
   "MASC",
+  "NHRP",
   NULL,
 };
 
@@ -895,6 +896,9 @@ static const struct zebra_desc_table command_types[] = {
   DESC_ENTRY	(ZEBRA_ROUTER_ID_DELETE),
   DESC_ENTRY	(ZEBRA_ROUTER_ID_UPDATE),
   DESC_ENTRY	(ZEBRA_HELLO),
+  DESC_ENTRY	(ZEBRA_NEXTHOP_REGISTER),
+  DESC_ENTRY	(ZEBRA_NEXTHOP_UNREGISTER),
+  DESC_ENTRY	(ZEBRA_NEXTHOP_UPDATE),
 };
 #undef DESC_ENTRY
 
@@ -983,6 +987,8 @@ proto_redistnum(int afi, const char *s)
 	return ZEBRA_ROUTE_BGP;
       else if (strncmp (s, "ba", 2) == 0)
 	return ZEBRA_ROUTE_BABEL;
+      else if (strncmp (s, "n", 1) == 0)
+	return ZEBRA_ROUTE_NHRP;
     }
   if (afi == AFI_IP6)
     {
@@ -1002,6 +1008,8 @@ proto_redistnum(int afi, const char *s)
 	return ZEBRA_ROUTE_BGP;
       else if (strncmp (s, "ba", 2) == 0)
 	return ZEBRA_ROUTE_BABEL;
+      else if (strncmp (s, "n", 1) == 0)
+	return ZEBRA_ROUTE_NHRP;
     }
   return -1;
 }

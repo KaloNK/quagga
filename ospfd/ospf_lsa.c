@@ -49,6 +49,7 @@
 #include "ospfd/ospf_route.h"
 #include "ospfd/ospf_ase.h"
 #include "ospfd/ospf_zebra.h"
+#include "ospfd/ospf_abr.h"
 
 
 u_int32_t
@@ -624,7 +625,7 @@ lsa_link_loopback_set (struct stream *s, struct ospf_interface *oi)
 
   mask.s_addr = 0xffffffff;
   id.s_addr = oi->address->u.prefix4.s_addr;
-  return link_info_set (s, id, mask, LSA_LINK_TYPE_STUB, 0, oi->output_cost);
+  return link_info_set (s, id, mask, LSA_LINK_TYPE_STUB, 0, 0);
 }
 
 /* Describe Virtual Link. */
@@ -1649,8 +1650,8 @@ ospf_external_lsa_body_set (struct stream *s, struct external_info *ei,
   /* Put forwarding address. */
   stream_put_ipv4 (s, fwd_addr.s_addr);
   
-  /* Put route tag -- This value should be introduced from configuration. */
-  stream_putl (s, 0);
+  /* Put route tag */
+  stream_putl (s, ei->tag);
 }
 
 /* Create new external-LSA. */
@@ -2163,7 +2164,7 @@ ospf_default_originate_timer (struct thread *thread)
       /* If there is no default route via redistribute,
 	 then originate AS-external-LSA with nexthop 0 (self). */
       nexthop.s_addr = 0;
-      ospf_external_info_add (DEFAULT_ROUTE, p, 0, nexthop);
+      ospf_external_info_add (DEFAULT_ROUTE, p, 0, nexthop, 0);
     }
 
   if ((ei = ospf_default_external_info (ospf)))
@@ -2551,6 +2552,7 @@ ospf_external_lsa_install (struct ospf *ospf, struct ospf_lsa *new,
            * New translations will be taken care of by the abr_task.
            */ 
           ospf_translated_nssa_refresh (ospf, new, NULL);
+          ospf_schedule_abr_task(ospf);
         }
     }
 

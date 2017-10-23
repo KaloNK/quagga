@@ -212,6 +212,18 @@ argv_concat (const char **argv, int argc, int shift)
   return str;
 }
 
+static unsigned int
+cmd_hash_key (void *p)
+{
+  return (uintptr_t) p;
+}
+
+static int
+cmd_hash_cmp (const void *a, const void *b)
+{
+  return a == b;
+}
+
 /* Install top node of command vector. */
 void
 install_node (struct cmd_node *node, 
@@ -220,6 +232,7 @@ install_node (struct cmd_node *node,
   vector_set_index (cmdvec, node->node, node);
   node->func = func;
   node->cmd_vector = vector_init (VECTOR_MIN_SIZE);
+  node->cmd_hash = hash_create (cmd_hash_key, cmd_hash_cmp);
 }
 
 /* Breaking up string into each command piece. I assume given
@@ -428,7 +441,7 @@ format_parser_end_multiple(struct format_parser_state *state)
   char *dummy;
 
   if (!state->in_multiple)
-    format_parser_error(state, "Unepexted ')'");
+    format_parser_error(state, "Unexpected ')'");
 
   if (vector_active(state->curvect) == 0)
     format_parser_error(state, "Empty multiple section");
@@ -608,7 +621,11 @@ install_element (enum node_type ntype, struct cmd_element *cmd)
   
   /* cmd_init hasn't been called */
   if (!cmdvec)
-    return;
+    {
+      fprintf (stderr, "%s called before cmd_init, breakage likely\n",
+               __func__);
+      return;
+    }
   
   cnode = vector_slot (cmdvec, ntype);
 
@@ -618,10 +635,25 @@ install_element (enum node_type ntype, struct cmd_element *cmd)
 	       ntype, cmd->string);
       exit (1);
     }
-
+  
+  if (hash_lookup (cnode->cmd_hash, cmd) != NULL)
+    {
+#ifdef DEV_BUILD
+      fprintf (stderr, 
+               "Multiple command installs to node %d of command:\n%s\n",
+               ntype, cmd->string);
+#endif
+      return;
+    }
+  
+  assert (hash_get (cnode->cmd_hash, cmd, hash_alloc_intern));
+  
   vector_set (cnode->cmd_vector, cmd);
   if (cmd->tokens == NULL)
     cmd->tokens = cmd_parse_format(cmd->string, cmd->doc);
+
+  if (ntype == VIEW_NODE)
+    install_element (ENABLE_NODE, cmd);
 }
 
 static const unsigned char itoa64[] =
@@ -752,54 +784,6 @@ cmd_node_vector (vector v, enum node_type ntype)
   struct cmd_node *cnode = vector_slot (v, ntype);
   return cnode->cmd_vector;
 }
-
-#if 0
-/* Filter command vector by symbol.  This function is not actually used;
- * should it be deleted? */
-static int
-cmd_filter_by_symbol (char *command, char *symbol)
-{
-  int i, lim;
-
-  if (strcmp (symbol, "IPV4_ADDRESS") == 0)
-    {
-      i = 0;
-      lim = strlen (command);
-      while (i < lim)
-	{
-	  if (! (isdigit ((int) command[i]) || command[i] == '.' || command[i] == '/'))
-	    return 1;
-	  i++;
-	}
-      return 0;
-    }
-  if (strcmp (symbol, "STRING") == 0)
-    {
-      i = 0;
-      lim = strlen (command);
-      while (i < lim)
-	{
-	  if (! (isalpha ((int) command[i]) || command[i] == '_' || command[i] == '-'))
-	    return 1;
-	  i++;
-	}
-      return 0;
-    }
-  if (strcmp (symbol, "IFNAME") == 0)
-    {
-      i = 0;
-      lim = strlen (command);
-      while (i < lim)
-	{
-	  if (! isalnum ((int) command[i]))
-	    return 1;
-	  i++;
-	}
-      return 0;
-    }
-  return 0;
-}
-#endif
 
 /* Completion match types. */
 enum match_type 
@@ -1113,14 +1097,6 @@ cmd_ipv6_prefix_match (const char *str)
   if (mask < 0 || mask > 128)
     return no_match;
   
-/* I don't know why mask < 13 makes command match partly.
-   Forgive me to make this comments. I Want to set static default route
-   because of lack of function to originate default in ospf6d; sorry
-       yasu
-  if (mask < 13)
-    return partly_match;
-*/
-
   return exact_match;
 }
 
@@ -2426,15 +2402,6 @@ cmd_complete_command_real (vector vline, struct vty *vty, int *status, int islib
 	  *status = CMD_ERR_AMBIGUOUS;
 	  return NULL;
 	}
-      /*
-	   else if (ret == 2)
-	   {
-	   vector_free (cmd_vector);
-	   cmd_matches_free(&matches);
-	   *status = CMD_ERR_NO_MATCH;
-	   return NULL;
-	   }
-	 */
     }
   
   /* Prepare match vector. */
@@ -2505,8 +2472,6 @@ cmd_complete_command_real (vector vline, struct vty *vty, int *status, int islib
                         malloc(lcd + 1));
 	      memcpy (lcdstr, matchvec->index[0], lcd);
 	      lcdstr[lcd] = '\0';
-
-	      /* match_str = (char **) &lcdstr; */
 
 	      /* Free matchvec. */
 	      for (i = 0; i < vector_active (matchvec); i++)
@@ -2602,8 +2567,12 @@ node_parent ( enum node_type node )
     case KEYCHAIN_KEY_NODE:
       ret = KEYCHAIN_NODE;
       break;
+    case LINK_PARAMS_NODE:
+      ret = INTERFACE_NODE;
+      break;
     default:
       ret = CONFIG_NODE;
+      break;
     }
 
   return ret;
@@ -2867,7 +2836,7 @@ config_from_file (struct vty *vty, FILE *fp, unsigned int *line_num)
   int ret;
   *line_num = 0;
 
-  while (fgets (vty->buf, VTY_BUFSIZ, fp))
+  while (fgets (vty->buf, vty->max, fp))
     {
       ++(*line_num);
 
@@ -2973,6 +2942,9 @@ DEFUN (config_exit,
     case KEYCHAIN_KEY_NODE:
       vty->node = KEYCHAIN_NODE;
       break;
+    case LINK_PARAMS_NODE:
+      vty->node = INTERFACE_NODE;
+      break;
     default:
       break;
     }
@@ -3022,6 +2994,7 @@ DEFUN (config_end,
     case MASC_NODE:
     case PIM_NODE:
     case VTY_NODE:
+    case LINK_PARAMS_NODE:
       vty_config_unlock (vty);
       vty->node = ENABLE_NODE;
       break;
@@ -4105,15 +4078,36 @@ host_config_set (char *filename)
   host.config = XSTRDUP (MTYPE_HOST, filename);
 }
 
-void
-install_default (enum node_type node)
+const char *
+host_config_get (void)
+{
+  return host.config;
+}
+
+static void
+install_default_basic (enum node_type node)
 {
   install_element (node, &config_exit_cmd);
   install_element (node, &config_quit_cmd);
-  install_element (node, &config_end_cmd);
   install_element (node, &config_help_cmd);
   install_element (node, &config_list_cmd);
+}
 
+/* Install common/default commands for a privileged node */
+void
+install_default (enum node_type node)
+{
+  /* VIEW_NODE is inited below, via install_default_basic, and
+     install_element's of commands to VIEW_NODE automatically are
+     also installed to ENABLE_NODE.
+    
+     For all other nodes, we must ensure install_default_basic is
+     also called/
+   */
+  if (node != VIEW_NODE && node != ENABLE_NODE)
+    install_default_basic (node);
+  
+  install_element (node, &config_end_cmd);
   install_element (node, &config_write_terminal_cmd);
   install_element (node, &config_write_file_cmd);
   install_element (node, &config_write_memory_cmd);
@@ -4133,7 +4127,7 @@ cmd_init (int terminal)
 
   /* Allocate initial top vector of commands. */
   cmdvec = vector_init (VECTOR_MIN_SIZE);
-
+  
   /* Default host value settings. */
   host.name = NULL;
   host.password = NULL;
@@ -4156,10 +4150,8 @@ cmd_init (int terminal)
   install_element (VIEW_NODE, &show_version_cmd);
   if (terminal)
     {
-      install_element (VIEW_NODE, &config_list_cmd);
-      install_element (VIEW_NODE, &config_exit_cmd);
-      install_element (VIEW_NODE, &config_quit_cmd);
-      install_element (VIEW_NODE, &config_help_cmd);
+      install_default_basic (VIEW_NODE);
+      
       install_element (VIEW_NODE, &config_enable_cmd);
       install_element (VIEW_NODE, &config_terminal_length_cmd);
       install_element (VIEW_NODE, &config_terminal_no_length_cmd);
@@ -4167,10 +4159,6 @@ cmd_init (int terminal)
       install_element (VIEW_NODE, &show_commandtree_cmd);
       install_element (VIEW_NODE, &echo_cmd);
 
-      install_element (RESTRICTED_NODE, &config_list_cmd);
-      install_element (RESTRICTED_NODE, &config_exit_cmd);
-      install_element (RESTRICTED_NODE, &config_quit_cmd);
-      install_element (RESTRICTED_NODE, &config_help_cmd);
       install_element (RESTRICTED_NODE, &config_enable_cmd);
       install_element (RESTRICTED_NODE, &config_terminal_length_cmd);
       install_element (RESTRICTED_NODE, &config_terminal_no_length_cmd);
@@ -4186,15 +4174,9 @@ cmd_init (int terminal)
       install_element (ENABLE_NODE, &copy_runningconfig_startupconfig_cmd);
     }
   install_element (ENABLE_NODE, &show_startup_config_cmd);
-  install_element (ENABLE_NODE, &show_version_cmd);
-  install_element (ENABLE_NODE, &show_commandtree_cmd);
 
   if (terminal)
     {
-      install_element (ENABLE_NODE, &config_terminal_length_cmd);
-      install_element (ENABLE_NODE, &config_terminal_no_length_cmd);
-      install_element (ENABLE_NODE, &show_logging_cmd);
-      install_element (ENABLE_NODE, &echo_cmd);
       install_element (ENABLE_NODE, &config_logmsg_cmd);
 
       install_default (CONFIG_NODE);
@@ -4243,12 +4225,10 @@ cmd_init (int terminal)
       install_element (CONFIG_NODE, &no_service_terminal_length_cmd);
 
       install_element (VIEW_NODE, &show_thread_cpu_cmd);
-      install_element (ENABLE_NODE, &show_thread_cpu_cmd);
       install_element (RESTRICTED_NODE, &show_thread_cpu_cmd);
       
       install_element (ENABLE_NODE, &clear_thread_cpu_cmd);
       install_element (VIEW_NODE, &show_work_queues_cmd);
-      install_element (ENABLE_NODE, &show_work_queues_cmd);
     }
   install_element (CONFIG_NODE, &show_commandtree_cmd);
   srandom(time(NULL));
@@ -4322,6 +4302,9 @@ cmd_terminate ()
                 cmd_terminate_element(cmd_element);
 
             vector_free (cmd_node_v);
+            hash_clean (cmd_node->cmd_hash, NULL);
+            hash_free (cmd_node->cmd_hash);
+            cmd_node->cmd_hash = NULL;
           }
 
       vector_free (cmdvec);

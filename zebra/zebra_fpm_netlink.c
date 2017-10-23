@@ -29,6 +29,7 @@
 #include "rib.h"
 
 #include "rt_netlink.h"
+#include "nexthop.h"
 
 #include "zebra_fpm_private.h"
 
@@ -251,11 +252,16 @@ netlink_route_info_fill (netlink_route_info_t *ri, int cmd,
    * An RTM_DELROUTE need not be accompanied by any nexthops,
    * particularly in our communication with the FPM.
    */
-  if (cmd == RTM_DELROUTE && !rib)
+  if (cmd == RTM_DELROUTE)
     goto skip;
 
-  if (rib)
-    ri->rtm_protocol = netlink_proto_from_route_type (rib->type);
+  if (!rib)
+    {
+      zlog_err("netlink_route_info_fill RTM_ADDROUTE called without rib info");
+      return 0;
+    }
+
+  ri->rtm_protocol = netlink_proto_from_route_type (rib->type);
 
   if ((rib->flags & ZEBRA_FLAG_BLACKHOLE) || (rib->flags & ZEBRA_FLAG_REJECT))
     discard = 1;
@@ -322,7 +328,7 @@ static int
 netlink_route_info_encode (netlink_route_info_t *ri, char *in_buf,
 			   size_t in_buf_len)
 {
-  int bytelen;
+  size_t bytelen;
   int nexthop_num = 0;
   size_t buf_offset;
   netlink_nh_info_t *nhi;

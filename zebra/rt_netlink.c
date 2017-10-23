@@ -38,6 +38,7 @@
 #include "thread.h"
 #include "privs.h"
 #include "vrf.h"
+#include "nexthop.h"
 
 #include "zebra/zserv.h"
 #include "zebra/rt.h"
@@ -65,6 +66,11 @@ extern struct zebra_t zebrad;
 extern struct zebra_privs_t zserv_privs;
 
 extern u_int32_t nl_rcvbufsize;
+
+static struct {
+  char *p;
+  size_t size;
+} nl_rcvbuf;
 
 /* Note: on netlink systems, there should be a 1-to-1 mapping between interface
    names and ifindex values. */
@@ -274,10 +280,9 @@ netlink_parse_info (int (*filter) (struct sockaddr_nl *, struct nlmsghdr *,
 
   while (1)
     {
-      char buf[NL_PKT_BUF_SIZE];
       struct iovec iov = {
-        .iov_base = buf,
-        .iov_len = sizeof buf
+        .iov_base = nl_rcvbuf.p,
+        .iov_len = nl_rcvbuf.size,
       };
       struct sockaddr_nl snl;
       struct msghdr msg = {
@@ -313,7 +318,8 @@ netlink_parse_info (int (*filter) (struct sockaddr_nl *, struct nlmsghdr *,
           return -1;
         }
       
-      for (h = (struct nlmsghdr *) buf; NLMSG_OK (h, (unsigned int) status);
+      for (h = (struct nlmsghdr *) nl_rcvbuf.p; 
+           NLMSG_OK (h, (unsigned int) status);
            h = NLMSG_NEXT (h, status))
         {
           /* Finish of reading. */
@@ -406,7 +412,9 @@ netlink_parse_info (int (*filter) (struct sockaddr_nl *, struct nlmsghdr *,
       /* After error care. */
       if (msg.msg_flags & MSG_TRUNC)
         {
-          zlog (NULL, LOG_ERR, "%s error: message truncated", nl->name);
+          zlog (NULL, LOG_ERR, "%s error: message truncated!", nl->name);
+          zlog (NULL, LOG_ERR, 
+                "Must restart with larger --nl-bufsize value!");
           continue;
         }
       if (status)
@@ -851,12 +859,12 @@ netlink_routing_table (struct sockaddr_nl *snl, struct nlmsghdr *h,
               if (gate)
                 {
                   if (index)
-                    nexthop_ipv4_ifindex_add (rib, gate, src, index);
+                    rib_nexthop_ipv4_ifindex_add (rib, gate, src, index);
                   else
-                    nexthop_ipv4_add (rib, gate, src);
+                    rib_nexthop_ipv4_add (rib, gate, src);
                 }
               else
-                nexthop_ifindex_add (rib, index);
+                rib_nexthop_ifindex_add (rib, index);
 
               len -= NLMSG_ALIGN(rtnh->rtnh_len);
               rtnh = RTNH_NEXT(rtnh);
@@ -907,6 +915,7 @@ netlink_route_change (struct sockaddr_nl *snl, struct nlmsghdr *h,
   int len;
   struct rtmsg *rtm;
   struct rtattr *tb[RTA_MAX + 1];
+  u_char zebra_flags = 0;
 
   char anyaddr[16] = { 0 };
 
@@ -964,6 +973,8 @@ netlink_route_change (struct sockaddr_nl *snl, struct nlmsghdr *h,
 
   if (rtm->rtm_protocol == RTPROT_ZEBRA && h->nlmsg_type == RTM_NEWROUTE)
     return 0;
+  if (rtm->rtm_protocol == RTPROT_ZEBRA)
+    SET_FLAG(zebra_flags, ZEBRA_FLAG_SELFROUTE);
 
   if (rtm->rtm_src_len != 0)
     {
@@ -1065,12 +1076,12 @@ netlink_route_change (struct sockaddr_nl *snl, struct nlmsghdr *h,
                   if (gate)
                     {
                       if (index)
-                        nexthop_ipv4_ifindex_add (rib, gate, src, index);
+                        rib_nexthop_ipv4_ifindex_add (rib, gate, src, index);
                       else
-                        nexthop_ipv4_add (rib, gate, src);
+                        rib_nexthop_ipv4_add (rib, gate, src);
                     }
                   else
-                    nexthop_ifindex_add (rib, index);
+                    rib_nexthop_ifindex_add (rib, index);
 
                   len -= NLMSG_ALIGN(rtnh->rtnh_len);
                   rtnh = RTNH_NEXT(rtnh);
@@ -1083,8 +1094,8 @@ netlink_route_change (struct sockaddr_nl *snl, struct nlmsghdr *h,
             }
         }
       else
-        rib_delete_ipv4 (ZEBRA_ROUTE_KERNEL, 0, &p, gate, index, vrf_id,
-                         SAFI_UNICAST);
+        rib_delete_ipv4 (ZEBRA_ROUTE_KERNEL, zebra_flags, &p, gate,
+			 index, vrf_id, SAFI_UNICAST);
     }
 
 #ifdef HAVE_IPV6
@@ -1108,7 +1119,7 @@ netlink_route_change (struct sockaddr_nl *snl, struct nlmsghdr *h,
         rib_add_ipv6 (ZEBRA_ROUTE_KERNEL, 0, &p, gate, index, vrf_id, table,
                       0, mtu, 0, SAFI_UNICAST);
       else
-        rib_delete_ipv6 (ZEBRA_ROUTE_KERNEL, 0, &p, gate, index, vrf_id,
+        rib_delete_ipv6 (ZEBRA_ROUTE_KERNEL, zebra_flags, &p, gate, index, vrf_id,
                          SAFI_UNICAST);
     }
 #endif /* HAVE_IPV6 */
@@ -1328,7 +1339,7 @@ netlink_route_read (struct zebra_vrf *zvrf)
 /* Utility function  comes from iproute2. 
    Authors:	Alexey Kuznetsov, <kuznet@ms2.inr.ac.ru> */
 int
-addattr_l (struct nlmsghdr *n, size_t maxlen, int type, void *data, int alen)
+addattr_l (struct nlmsghdr *n, size_t maxlen, int type, void *data, size_t alen)
 {
   size_t len;
   struct rtattr *rta;
@@ -1348,9 +1359,10 @@ addattr_l (struct nlmsghdr *n, size_t maxlen, int type, void *data, int alen)
 }
 
 int
-rta_addattr_l (struct rtattr *rta, int maxlen, int type, void *data, int alen)
+rta_addattr_l (struct rtattr *rta, size_t maxlen, int type, void *data, 
+               size_t alen)
 {
-  int len;
+  size_t len;
   struct rtattr *subrta;
 
   len = RTA_LENGTH (alen);
@@ -2000,6 +2012,8 @@ kernel_init (struct zebra_vrf *zvrf)
   /* Register kernel socket. */
   if (zvrf->netlink.sock > 0)
     {
+      size_t bufsize = MAX(nl_rcvbufsize, 2 * sysconf(_SC_PAGESIZE));
+      
       /* Only want non-blocking on the netlink event socket */
       if (fcntl (zvrf->netlink.sock, F_SETFL, O_NONBLOCK) < 0)
         zlog_err ("Can't set %s socket flags: %s", zvrf->netlink.name,
@@ -2008,7 +2022,10 @@ kernel_init (struct zebra_vrf *zvrf)
       /* Set receive buffer size if it's set from command line */
       if (nl_rcvbufsize)
         netlink_recvbuf (&zvrf->netlink, nl_rcvbufsize);
-
+      
+      nl_rcvbuf.p = XMALLOC (MTYPE_NETLINK_RCVBUF, bufsize);
+      nl_rcvbuf.size = bufsize;
+      
       netlink_install_filter (zvrf->netlink.sock, zvrf->netlink_cmd.snl.nl_pid);
       zvrf->t_netlink = thread_add_read (zebrad.master, kernel_read, zvrf,
                                          zvrf->netlink.sock);

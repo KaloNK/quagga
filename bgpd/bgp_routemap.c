@@ -51,6 +51,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "bgpd/bgp_filter.h"
 #include "bgpd/bgp_mplsvpn.h"
 #include "bgpd/bgp_ecommunity.h"
+#include "bgpd/bgp_lcommunity.h"
 #include "bgpd/bgp_vty.h"
 
 /* Memo of route-map commands.
@@ -59,6 +60,7 @@ o Cisco route-map
 
  match as-path          :  Done
        community        :  Done
+       lcommunity       :  Done
        interface        :  Not yet
        ip address       :  Done
        ip next-hop      :  Done
@@ -71,12 +73,15 @@ o Cisco route-map
        length           :  (This will not be implemented by bgpd)
        metric           :  Done
        route-type       :  (This will not be implemented by bgpd)
-       tag              :  (This will not be implemented by bgpd)
+       tag              :  Done
+       local-preference :  Done
 
  set  as-path prepend   :  Done
       as-path tag       :  Not yet
       automatic-tag     :  (This will not be implemented by bgpd)
       community         :  Done
+      large-community   :  Done
+      large-comm-list   :  Done
       comm-list         :  Not yet
       dampning          :  Not yet
       default           :  (This will not be implemented by bgpd)
@@ -90,7 +95,7 @@ o Cisco route-map
       metric            :  Done
       metric-type       :  Not yet
       origin            :  Done
-      tag               :  (This will not be implemented by bgpd)
+      tag               :  Done
       weight            :  Done
 
 o Local extensions
@@ -613,6 +618,72 @@ struct route_map_rule_cmd route_match_ip_route_source_prefix_list_cmd =
   route_match_ip_route_source_prefix_list_free
 };
 
+/* `match local-preference LOCAL-PREF' */
+
+/* Match function return 1 if match is success else return zero. */
+static route_map_result_t
+route_match_local_pref (void *rule, struct prefix *prefix,
+			route_map_object_t type, void *object)
+{
+  u_int32_t *local_pref;
+  struct bgp_info *bgp_info;
+
+  if (type == RMAP_BGP)
+    {
+      local_pref = rule;
+      bgp_info = object;
+
+      if (bgp_info->attr->local_pref == *local_pref)
+	return RMAP_MATCH;
+      else
+	return RMAP_NOMATCH;
+    }
+  return RMAP_NOMATCH;
+}
+
+/* Route map `match local-preference' match statement.
+   `arg' is local-pref value */
+static void *
+route_match_local_pref_compile (const char *arg)
+{
+  u_int32_t *local_pref;
+  char *endptr = NULL;
+  unsigned long tmpval;
+
+  /* Locpref value shoud be integer. */
+  if (! all_digit (arg))
+    return NULL;
+
+  errno = 0;
+  tmpval = strtoul (arg, &endptr, 10);
+  if (*endptr != '\0' || errno || tmpval > UINT32_MAX)
+    return NULL;
+
+  local_pref = XMALLOC (MTYPE_ROUTE_MAP_COMPILED, sizeof (u_int32_t));
+
+  if (!local_pref)
+    return local_pref;
+
+  *local_pref = tmpval;
+  return local_pref;
+}
+
+/* Free route map's compiled `match local-preference' value. */
+static void
+route_match_local_pref_free (void *rule)
+{
+  XFREE (MTYPE_ROUTE_MAP_COMPILED, rule);
+}
+
+/* Route map commands for metric matching. */
+struct route_map_rule_cmd route_match_local_pref_cmd =
+{
+  "local-preference",
+  route_match_local_pref,
+  route_match_local_pref_compile,
+  route_match_local_pref_free
+};
+
 /* `match metric METRIC' */
 
 /* Match function return 1 if match is success else return zero. */
@@ -773,21 +844,93 @@ struct route_map_rule_cmd route_match_community_cmd =
   route_match_community_free
 };
 
+/* Match function for lcommunity match. */
+static route_map_result_t
+route_match_lcommunity (void *rule, struct prefix *prefix,
+		       route_map_object_t type, void *object)
+{
+  struct community_list *list;
+  struct bgp_info *bgp_info;
+  struct rmap_community *rcom;
+
+  if (type == RMAP_BGP)
+    {
+      bgp_info = object;
+      rcom = rule;
+
+      list = community_list_lookup (bgp_clist, rcom->name,
+				    LARGE_COMMUNITY_LIST_MASTER);
+      if (! list)
+	return RMAP_NOMATCH;
+
+      if (bgp_info->attr->extra &&
+	  lcommunity_list_match (bgp_info->attr->extra->lcommunity, list))
+	return RMAP_MATCH;
+
+    }
+  return RMAP_NOMATCH;
+}
+
+/* Compile function for community match. */
+static void *
+route_match_lcommunity_compile (const char *arg)
+{
+  struct rmap_community *rcom;
+  int len;
+  char *p;
+
+  rcom = XCALLOC (MTYPE_ROUTE_MAP_COMPILED, sizeof (struct rmap_community));
+
+  p = strchr (arg, ' ');
+  if (p)
+    {
+      len = p - arg;
+      rcom->name = XCALLOC (MTYPE_ROUTE_MAP_COMPILED, len + 1);
+      memcpy (rcom->name, arg, len);
+    }
+  else
+    {
+      rcom->name = XSTRDUP (MTYPE_ROUTE_MAP_COMPILED, arg);
+      rcom->exact = 0;
+    }
+  return rcom;
+}
+
+/* Compile function for community match. */
+static void
+route_match_lcommunity_free (void *rule)
+{
+  struct rmap_community *rcom = rule;
+
+  XFREE (MTYPE_ROUTE_MAP_COMPILED, rcom->name);
+  XFREE (MTYPE_ROUTE_MAP_COMPILED, rcom);
+}
+
+/* Route map commands for community matching. */
+struct route_map_rule_cmd route_match_lcommunity_cmd =
+{
+  "large-community",
+  route_match_lcommunity,
+  route_match_lcommunity_compile,
+  route_match_lcommunity_free
+};
+
+
 /* Match function for extcommunity match. */
 static route_map_result_t
-route_match_ecommunity (void *rule, struct prefix *prefix, 
+route_match_ecommunity (void *rule, struct prefix *prefix,
 			route_map_object_t type, void *object)
 {
   struct community_list *list;
   struct bgp_info *bgp_info;
 
-  if (type == RMAP_BGP) 
+  if (type == RMAP_BGP)
     {
       bgp_info = object;
-      
+
       if (!bgp_info->attr->extra)
         return RMAP_NOMATCH;
-      
+
       list = community_list_lookup (bgp_clist, (char *) rule,
 				    EXTCOMMUNITY_LIST_MASTER);
       if (! list)
@@ -936,6 +1079,38 @@ struct route_map_rule_cmd route_match_probability_cmd =
 /* } */
 
 /* `set ip next-hop IP_ADDRESS' */
+
+/* Match function return 1 if match is success else return zero. */
+static route_map_result_t
+route_match_tag (void *rule, struct prefix *prefix,
+                 route_map_object_t type, void *object)
+{
+  route_tag_t *tag;
+  struct bgp_info *bgp_info;
+
+  if (type == RMAP_BGP)
+    {
+      tag = rule;
+      bgp_info = object;
+
+      if (!bgp_info->attr->extra)
+         return RMAP_NOMATCH;
+
+      return ((bgp_info->attr->extra->tag == *tag)? RMAP_MATCH : RMAP_NOMATCH);
+    }
+
+  return RMAP_NOMATCH;
+}
+
+/* Route map commands for tag matching. */
+static struct route_map_rule_cmd route_match_tag_cmd =
+{
+  "tag",
+  route_match_tag,
+  route_map_rule_tag_compile,
+  route_map_rule_tag_free,
+};
+
 
 /* Set nexthop to object.  ojbect must be pointer to struct attr. */
 struct rmap_ip_nexthop_set
@@ -1371,6 +1546,225 @@ struct route_map_rule_cmd route_set_community_cmd =
   route_set_community_free,
 };
 
+/* `set community COMMUNITY' */
+struct rmap_lcom_set
+{
+  struct lcommunity *lcom;
+  int additive;
+  int none;
+};
+
+
+/* For lcommunity set mechanism. */
+static route_map_result_t
+route_set_lcommunity (void *rule, struct prefix *prefix,
+		     route_map_object_t type, void *object)
+{
+  struct rmap_lcom_set *rcs;
+  struct bgp_info *binfo;
+  struct attr *attr;
+  struct lcommunity *new = NULL;
+  struct lcommunity *old;
+  struct lcommunity *merge;
+
+  if (type == RMAP_BGP)
+    {
+      rcs = rule;
+      binfo = object;
+      attr = binfo->attr;
+      old = (attr->extra) ? attr->extra->lcommunity : NULL;
+
+      /* "none" case.  */
+      if (rcs->none)
+	{
+	  attr->flag &= ~(ATTR_FLAG_BIT (BGP_ATTR_LARGE_COMMUNITIES));
+	  if (attr->extra) {
+	    attr->extra->lcommunity = NULL;
+	  }
+	  /* See the longer comment down below. */
+	  if (old && old->refcnt == 0)
+	    lcommunity_free(&old);
+	  return RMAP_OKAY;
+	}
+
+      if (rcs->additive && old)
+	{
+	  merge = lcommunity_merge (lcommunity_dup (old), rcs->lcom);
+
+	  /* HACK: if the old large-community is not intern'd,
+           * we should free it here, or all reference to it may be lost.
+           * Really need to cleanup attribute caching sometime.
+           */
+	  if (old->refcnt == 0)
+	    lcommunity_free (&old);
+	  new = lcommunity_uniq_sort (merge);
+	  lcommunity_free (&merge);
+	}
+      else
+        {
+          new = lcommunity_dup (rcs->lcom);
+        }
+
+      /* will be interned by caller if required */
+      bgp_attr_extra_get (attr)->lcommunity = new;
+      attr->flag |= ATTR_FLAG_BIT (BGP_ATTR_LARGE_COMMUNITIES);
+    }
+
+  return RMAP_OKAY;
+}
+
+/* Compile function for set community. */
+static void *
+route_set_lcommunity_compile (const char *arg)
+{
+  struct rmap_lcom_set *rcs;
+  struct lcommunity *lcom = NULL;
+  char *sp;
+  int additive = 0;
+  int none = 0;
+
+  if (strcmp (arg, "none") == 0)
+    none = 1;
+  else
+    {
+      sp = strstr (arg, "additive");
+
+      if (sp && sp > arg)
+	{
+	  /* "additive" keyworkd is included.  */
+	  additive = 1;
+	  *(sp - 1) = '\0';
+	}
+
+      lcom = lcommunity_str2com (arg);
+
+     if (additive)
+	*(sp - 1) = ' ';
+
+     if (! lcom)
+	return NULL;
+    }
+
+  rcs = XCALLOC (MTYPE_ROUTE_MAP_COMPILED, sizeof (struct rmap_com_set));
+  rcs->lcom = lcom;
+  rcs->additive = additive;
+  rcs->none = none;
+
+  return rcs;
+}
+
+/* Free function for set lcommunity. */
+static void
+route_set_lcommunity_free (void *rule)
+{
+  struct rmap_lcom_set *rcs = rule;
+
+  if (rcs->lcom) {
+    lcommunity_free (&rcs->lcom);
+  }
+  XFREE (MTYPE_ROUTE_MAP_COMPILED, rcs);
+}
+
+/* Set community rule structure. */
+struct route_map_rule_cmd route_set_lcommunity_cmd =
+{
+  "large-community",
+  route_set_lcommunity,
+  route_set_lcommunity_compile,
+  route_set_lcommunity_free,
+};
+
+/* `set large-comm-list (<1-99>|<100-500>|WORD) delete' */
+
+/* For large community set mechanism. */
+static route_map_result_t
+route_set_lcommunity_delete (void *rule, struct prefix *prefix,
+			     route_map_object_t type, void *object)
+{
+  struct community_list *list;
+  struct lcommunity *merge;
+  struct lcommunity *new;
+  struct lcommunity *old;
+  struct bgp_info *binfo;
+
+  if (type == RMAP_BGP)
+    {
+      if (! rule)
+	return RMAP_OKAY;
+
+      binfo = object;
+      list = community_list_lookup (bgp_clist, rule,
+				    LARGE_COMMUNITY_LIST_MASTER);
+      old = ((binfo->attr->extra) ? binfo->attr->extra->lcommunity : NULL);
+
+      if (list && old)
+	{
+	  merge = lcommunity_list_match_delete (lcommunity_dup (old), list);
+	  new = lcommunity_uniq_sort (merge);
+	  lcommunity_free (&merge);
+
+	  /* HACK: if the old community is not intern'd,
+	   * we should free it here, or all reference to it may be lost.
+	   * Really need to cleanup attribute caching sometime.
+	   */
+	  if (old->refcnt == 0)
+	    lcommunity_free (&old);
+
+	  if (new->size == 0)
+	    {
+	      binfo->attr->extra->lcommunity = NULL;
+	      binfo->attr->flag &= ~ATTR_FLAG_BIT (BGP_ATTR_LARGE_COMMUNITIES);
+	      lcommunity_free (&new);
+	    }
+	  else
+	    {
+	      binfo->attr->extra->lcommunity = new;
+	      binfo->attr->flag |= ATTR_FLAG_BIT (BGP_ATTR_LARGE_COMMUNITIES);
+	    }
+	}
+    }
+
+  return RMAP_OKAY;
+}
+
+/* Compile function for set lcommunity. */
+static void *
+route_set_lcommunity_delete_compile (const char *arg)
+{
+  char *p;
+  char *str;
+  int len;
+
+  p = strchr (arg, ' ');
+  if (p)
+    {
+      len = p - arg;
+      str = XCALLOC (MTYPE_ROUTE_MAP_COMPILED, len + 1);
+      memcpy (str, arg, len);
+    }
+  else
+    str = NULL;
+
+  return str;
+}
+
+/* Free function for set lcommunity. */
+static void
+route_set_lcommunity_delete_free (void *rule)
+{
+  XFREE (MTYPE_ROUTE_MAP_COMPILED, rule);
+}
+
+/* Set lcommunity rule structure. */
+struct route_map_rule_cmd route_set_lcommunity_delete_cmd =
+{
+  "large-comm-list",
+  route_set_lcommunity_delete,
+  route_set_lcommunity_delete_compile,
+  route_set_lcommunity_delete_free,
+};
+
+
 /* `set comm-list (<1-99>|<100-500>|WORD) delete' */
 
 /* For community set mechanism. */
@@ -1710,6 +2104,39 @@ struct route_map_rule_cmd route_set_aggregator_as_cmd =
   route_set_aggregator_as_free,
 };
 
+/* Set tag to object. object must be pointer to struct bgp_info */
+static route_map_result_t
+route_set_tag (void *rule, struct prefix *prefix,
+               route_map_object_t type, void *object)
+{
+  route_tag_t *tag;
+  struct bgp_info *bgp_info;
+  struct attr_extra *ae;
+
+  if (type == RMAP_BGP)
+    {
+      tag = rule;
+      bgp_info = object;
+      ae = bgp_attr_extra_get (bgp_info->attr);
+
+      /* Set tag value */
+      ae->tag=*tag;
+
+    }
+
+  return RMAP_OKAY;
+}
+
+/* Route map commands for tag set. */
+static struct route_map_rule_cmd route_set_tag_cmd =
+{
+  "tag",
+  route_set_tag,
+  route_map_rule_tag_compile,
+  route_map_rule_tag_free,
+};
+
+
 /* `match ipv6 address IP_ACCESS_LIST' */
 
 static route_map_result_t
@@ -1990,7 +2417,6 @@ route_set_ipv6_nexthop_peer (void *rule, struct prefix *prefix,
   struct in6_addr peer_address;
   struct bgp_info *bgp_info;
   struct peer *peer;
-  char peer_addr_buf[INET6_ADDRSTRLEN];
 
   if (type == RMAP_BGP)
     {
@@ -2003,19 +2429,13 @@ route_set_ipv6_nexthop_peer (void *rule, struct prefix *prefix,
 	  && peer->su_remote
 	  && sockunion_family (peer->su_remote) == AF_INET6)
 	{
-	  inet_pton (AF_INET6, sockunion2str (peer->su_remote,
-					      peer_addr_buf,
-					      INET6_ADDRSTRLEN),
-		     &peer_address);
+	  peer_address = peer->su_remote->sin6.sin6_addr;
 	}
       else if (CHECK_FLAG (peer->rmap_type, PEER_RMAP_TYPE_OUT)
 	       && peer->su_local
 	       && sockunion_family (peer->su_local) == AF_INET6)
 	{
-	  inet_pton (AF_INET, sockunion2str (peer->su_local,
-					     peer_addr_buf,
-					     INET6_ADDRSTRLEN),
-		     &peer_address);
+	  peer_address = peer->su_local->sin6.sin6_addr;
 	}
 
       if (IN6_IS_ADDR_LINKLOCAL(&peer_address))
@@ -2197,10 +2617,10 @@ bgp_route_match_add (struct vty *vty, struct route_map_index *index,
       switch (ret)
 	{
 	case RMAP_RULE_MISSING:
-	  vty_out (vty, "%% Can't find rule.%s", VTY_NEWLINE);
+	  vty_out (vty, "%% BGP Can't find rule.%s", VTY_NEWLINE);
 	  return CMD_WARNING;
 	case RMAP_COMPILE_ERROR:
-	  vty_out (vty, "%% Argument is malformed.%s", VTY_NEWLINE);
+	  vty_out (vty, "%% BGP Argument is malformed.%s", VTY_NEWLINE);
 	  return CMD_WARNING;
 	}
     }
@@ -2220,10 +2640,10 @@ bgp_route_match_delete (struct vty *vty, struct route_map_index *index,
       switch (ret)
 	{
 	case RMAP_RULE_MISSING:
-	  vty_out (vty, "%% Can't find rule.%s", VTY_NEWLINE);
+	  vty_out (vty, "%% BGP Can't find rule.%s", VTY_NEWLINE);
 	  return CMD_WARNING;
 	case RMAP_COMPILE_ERROR:
-	  vty_out (vty, "%% Argument is malformed.%s", VTY_NEWLINE);
+	  vty_out (vty, "%% BGP Argument is malformed.%s", VTY_NEWLINE);
 	  return CMD_WARNING;
 	}
     }
@@ -2243,10 +2663,10 @@ bgp_route_set_add (struct vty *vty, struct route_map_index *index,
       switch (ret)
 	{
 	case RMAP_RULE_MISSING:
-	  vty_out (vty, "%% Can't find rule.%s", VTY_NEWLINE);
+	  vty_out (vty, "%% BGP Can't find rule.%s", VTY_NEWLINE);
 	  return CMD_WARNING;
 	case RMAP_COMPILE_ERROR:
-	  vty_out (vty, "%% Argument is malformed.%s", VTY_NEWLINE);
+	  vty_out (vty, "%% BGP Argument is malformed.%s", VTY_NEWLINE);
 	  return CMD_WARNING;
 	}
     }
@@ -2266,10 +2686,10 @@ bgp_route_set_delete (struct vty *vty, struct route_map_index *index,
       switch (ret)
 	{
 	case RMAP_RULE_MISSING:
-	  vty_out (vty, "%% Can't find rule.%s", VTY_NEWLINE);
+	  vty_out (vty, "%% BGP Can't find rule.%s", VTY_NEWLINE);
 	  return CMD_WARNING;
 	case RMAP_COMPILE_ERROR:
-	  vty_out (vty, "%% Argument is malformed.%s", VTY_NEWLINE);
+	  vty_out (vty, "%% BGP Argument is malformed.%s", VTY_NEWLINE);
 	  return CMD_WARNING;
 	}
     }
@@ -2389,7 +2809,7 @@ bgp_route_map_update (const char *unused)
 	      route_map_lookup_by_name (bgp->rmap[AFI_IP][i].name);
 	  if (bgp->rmap[AFI_IP6][i].name)
 	    bgp->rmap[AFI_IP6][i].map =
-	      route_map_lookup_by_name (bgp->rmap[AFI_IP][i].name);
+	      route_map_lookup_by_name (bgp->rmap[AFI_IP6][i].name);
 	}
     }
 }
@@ -2399,8 +2819,8 @@ DEFUN (match_peer,
        "match peer (A.B.C.D|X:X::X:X)",
        MATCH_STR
        "Match peer address\n"
-       "IPv6 address of peer\n"
-       "IP address of peer\n")
+       "IP address of peer\n"
+       "IPv6 address of peer\n")
 {
   return bgp_route_match_add (vty, vty->index, "peer", argv[0]);
 }
@@ -2434,8 +2854,8 @@ ALIAS (no_match_peer,
        NO_STR
        MATCH_STR
        "Match peer address\n"
-       "IPv6 address of peer\n"
-       "IP address of peer\n")
+       "IP address of peer\n"
+       "IPv6 address of peer\n")
 
 ALIAS (no_match_peer,
        no_match_peer_local_cmd,
@@ -2733,6 +3153,37 @@ ALIAS (no_match_metric,
        "Match metric of route\n"
        "Metric value\n")
 
+DEFUN (match_local_pref,
+       match_local_pref_cmd,
+       "match local-preference <0-4294967295>",
+       MATCH_STR
+       "Match local-preference of route\n"
+       "Metric value\n")
+{
+  return bgp_route_match_add (vty, vty->index, "local-preference", argv[0]);
+}
+
+DEFUN (no_match_local_pref,
+       no_match_local_pref_cmd,
+       "no match local-preference",
+       NO_STR
+       MATCH_STR
+       "Match local preference of route\n")
+{
+  if (argc == 0)
+    return bgp_route_match_delete (vty, vty->index, "local-preference", NULL);
+
+  return bgp_route_match_delete (vty, vty->index, "local-preference", argv[0]);
+}
+
+ALIAS (no_match_local_pref,
+       no_match_local_pref_val_cmd,
+       "no match local-preference <0-4294967295>",
+       NO_STR
+       MATCH_STR
+       "Match local preference of route\n"
+       "Local preference value\n")
+
 DEFUN (match_community, 
        match_community_cmd,
        "match community (<1-99>|<100-500>|WORD)",
@@ -2800,6 +3251,32 @@ ALIAS (no_match_community,
        "Community-list number (expanded)\n"
        "Community-list name\n"
        "Do exact matching of communities\n")
+
+DEFUN (match_lcommunity,
+       match_lcommunity_cmd,
+       "match large-community (<1-99>|<100-500>|WORD)",
+       MATCH_STR
+       "Match BGP large community list\n"
+       "Large Community-list number (standard)\n"
+       "Large Community-list number (expanded)\n"
+       "Large Community-list name\n")
+{
+  return bgp_route_match_add (vty, vty->index, "large-community", argv[0]);
+}
+
+DEFUN (no_match_lcommunity,
+       no_match_lcommunity_cmd,
+       "no match large-community (<1-99>|<100-500>|WORD)",
+       NO_STR
+       MATCH_STR
+       "Match BGP large community list\n"
+       "Large Community-list number (standard)\n"
+       "Large Community-list number (expanded)\n"
+       "Large Community-list name\n")
+{
+  return bgp_route_match_delete (vty, vty->index, "large-community", NULL);
+}
+
 
 DEFUN (match_ecommunity, 
        match_ecommunity_cmd,
@@ -2899,6 +3376,37 @@ ALIAS (no_match_origin,
        "remote EGP\n"
        "local IGP\n"
        "unknown heritage\n")
+
+DEFUN (match_tag,
+       match_tag_cmd,
+       "match tag <1-4294967295>",
+       MATCH_STR
+       "Match tag of route\n"
+       "Tag value\n")
+{
+  return bgp_route_match_add (vty, vty->index, "tag", argv[0]);
+}
+
+DEFUN (no_match_tag,
+       no_match_tag_cmd,
+       "no match tag",
+       NO_STR
+       MATCH_STR
+       "Match tag of route\n")
+{
+  if (argc == 0)
+    return bgp_route_match_delete (vty, vty->index, "tag", NULL);
+
+  return bgp_route_match_delete (vty, vty->index, "tag", argv[0]);
+}
+
+ALIAS (no_match_tag,
+       no_match_tag_val_cmd,
+       "no match tag <1-4294967295>",
+       NO_STR
+       MATCH_STR
+       "Match tag of route\n"
+       "Tag value\n")
 
 DEFUN (set_ip_nexthop,
        set_ip_nexthop_cmd,
@@ -3313,7 +3821,7 @@ DEFUN (set_community_delete,
        SET_STR
        "set BGP community list (for deletion)\n"
        "Community-list number (standard)\n"
-       "Communitly-list number (expanded)\n"
+       "Community-list number (expanded)\n"
        "Community-list name\n"
        "Delete matching communities\n")
 {
@@ -3346,9 +3854,107 @@ ALIAS (no_set_community_delete,
        SET_STR
        "set BGP community list (for deletion)\n"
        "Community-list number (standard)\n"
-       "Communitly-list number (expanded)\n"
+       "Community-list number (expanded)\n"
        "Community-list name\n"
        "Delete matching communities\n")
+
+
+DEFUN (set_lcommunity,
+       set_lcommunity_cmd,
+       "set large-community .AA:BB:CC",
+       SET_STR
+       "BGP large community attribute\n"
+       "Large Community number in aa:bb:cc format or additive\n")
+{
+  int ret;
+  char *str;
+
+  str = argv_concat (argv, argc, 0);
+  ret = bgp_route_set_add (vty, vty->index, "large-community", str);
+  XFREE (MTYPE_TMP, str);
+
+  return ret;
+}
+
+DEFUN (set_lcommunity_none,
+       set_lcommunity_none_cmd,
+       "set large-community none",
+       SET_STR
+       "BGP large community attribute\n"
+       "No large community attribute\n")
+{
+  return bgp_route_set_add (vty, vty->index, "large-community", "none");
+}
+
+DEFUN (no_set_lcommunity,
+       no_set_lcommunity_cmd,
+       "no set large-community",
+       NO_STR
+       SET_STR
+       "BGP large community attribute\n"
+       "Large community\n")
+{
+  return bgp_route_set_delete (vty, vty->index, "large-community", NULL);
+}
+
+ALIAS (no_set_lcommunity,
+       no_set_lcommunity_val_cmd,
+       "no set large-community .AA:BB:CC",
+       NO_STR
+       SET_STR
+       "BGP large community attribute\n"
+       "Large community in .AA:BB:CC format or additive\n")
+
+ALIAS (no_set_lcommunity,
+       no_set_lcommunity_none_cmd,
+       "no set large-community none",
+       NO_STR
+       SET_STR
+       "BGP community attribute\n"
+       "No community attribute\n")
+
+DEFUN (set_lcommunity_delete,
+       set_lcommunity_delete_cmd,
+       "set large-comm-list (<1-99>|<100-500>|WORD) delete",
+       SET_STR
+       "set BGP large community list (for deletion)\n"
+       "Large Community-list number (standard)\n"
+       "Large Communitly-list number (expanded)\n"
+       "Large Community-list name\n"
+       "Delete matching large communities\n")
+{
+  char *str;
+
+  str = XCALLOC (MTYPE_TMP, strlen (argv[0]) + strlen (" delete") + 1);
+  strcpy (str, argv[0]);
+  strcpy (str + strlen (argv[0]), " delete");
+
+  bgp_route_set_add (vty, vty->index, "large-comm-list", str);
+
+  XFREE (MTYPE_TMP, str);
+  return CMD_SUCCESS;
+}
+
+DEFUN (no_set_lcommunity_delete,
+       no_set_lcommunity_delete_cmd,
+       "no set large-comm-list",
+       NO_STR
+       SET_STR
+       "set BGP large community list (for deletion)\n")
+{
+  return bgp_route_set_delete (vty, vty->index, "large-comm-list", NULL);
+}
+
+ALIAS (no_set_lcommunity_delete,
+       no_set_lcommunity_delete_val_cmd,
+       "no set large-comm-list (<1-99>|<100-500>|WORD) delete",
+       NO_STR
+       SET_STR
+       "set BGP large community list (for deletion)\n"
+       "Large Community-list number (standard)\n"
+       "Large Communitly-list number (expanded)\n"
+       "Large Community-list name\n"
+       "Delete matching large communities\n")
 
 DEFUN (set_ecommunity_rt,
        set_ecommunity_rt_cmd,
@@ -3564,6 +4170,38 @@ ALIAS (no_set_aggregator_as,
        "AS number of aggregator\n"
        "AS number\n"
        "IP address of aggregator\n")
+
+DEFUN (set_tag,
+       set_tag_cmd,
+       "set tag <1-4294967295>",
+       SET_STR
+       "Tag value for routing protocol\n"
+       "Tag value\n")
+{
+  return bgp_route_set_add (vty, vty->index, "tag", argv[0]);
+}
+
+DEFUN (no_set_tag,
+       no_set_tag_cmd,
+       "no set tag",
+       NO_STR
+       SET_STR
+       "Tag value for routing protocol\n")
+{
+  if (argc == 0)
+      bgp_route_set_delete(vty, vty->index, "tag", NULL);
+
+  return bgp_route_set_delete (vty, vty->index, "tag", argv[0]);
+}
+
+ALIAS (no_set_tag,
+       no_set_tag_val_cmd,
+       "no set tag <1-4294967295>",
+       NO_STR
+       SET_STR
+       "Tag value for routing protocol\n"
+       "Tag value\n")
+
 
 DEFUN (match_ipv6_address, 
        match_ipv6_address_cmd,
@@ -3867,6 +4505,7 @@ bgp_route_map_init (void)
   route_map_delete_hook (bgp_route_map_update);
 
   route_map_install_match (&route_match_peer_cmd);
+  route_map_install_match (&route_match_local_pref_cmd);
   route_map_install_match (&route_match_ip_address_cmd);
   route_map_install_match (&route_match_ip_next_hop_cmd);
   route_map_install_match (&route_match_ip_route_source_cmd);
@@ -3875,10 +4514,13 @@ bgp_route_map_init (void)
   route_map_install_match (&route_match_ip_route_source_prefix_list_cmd);
   route_map_install_match (&route_match_aspath_cmd);
   route_map_install_match (&route_match_community_cmd);
+  route_map_install_match (&route_match_lcommunity_cmd);
   route_map_install_match (&route_match_ecommunity_cmd);
+  route_map_install_match (&route_match_local_pref_cmd);
   route_map_install_match (&route_match_metric_cmd);
   route_map_install_match (&route_match_origin_cmd);
   route_map_install_match (&route_match_probability_cmd);
+  route_map_install_match (&route_match_tag_cmd);
 
   route_map_install_set (&route_set_ip_nexthop_cmd);
   route_map_install_set (&route_set_local_pref_cmd);
@@ -3891,10 +4533,13 @@ bgp_route_map_init (void)
   route_map_install_set (&route_set_aggregator_as_cmd);
   route_map_install_set (&route_set_community_cmd);
   route_map_install_set (&route_set_community_delete_cmd);
+  route_map_install_set (&route_set_lcommunity_cmd);
+  route_map_install_set (&route_set_lcommunity_delete_cmd);
   route_map_install_set (&route_set_vpnv4_nexthop_cmd);
   route_map_install_set (&route_set_originator_id_cmd);
   route_map_install_set (&route_set_ecommunity_rt_cmd);
   route_map_install_set (&route_set_ecommunity_soo_cmd);
+  route_map_install_set (&route_set_tag_cmd);
 
   install_element (RMAP_NODE, &match_peer_cmd);
   install_element (RMAP_NODE, &match_peer_local_cmd);
@@ -3926,11 +4571,16 @@ bgp_route_map_init (void)
   install_element (RMAP_NODE, &match_metric_cmd);
   install_element (RMAP_NODE, &no_match_metric_cmd);
   install_element (RMAP_NODE, &no_match_metric_val_cmd);
+  install_element (RMAP_NODE, &match_local_pref_cmd);
+  install_element (RMAP_NODE, &no_match_local_pref_cmd);
+  install_element (RMAP_NODE, &no_match_local_pref_val_cmd);
   install_element (RMAP_NODE, &match_community_cmd);
   install_element (RMAP_NODE, &match_community_exact_cmd);
   install_element (RMAP_NODE, &no_match_community_cmd);
   install_element (RMAP_NODE, &no_match_community_val_cmd);
   install_element (RMAP_NODE, &no_match_community_exact_cmd);
+  install_element (RMAP_NODE, &match_lcommunity_cmd);
+  install_element (RMAP_NODE, &no_match_lcommunity_cmd);
   install_element (RMAP_NODE, &match_ecommunity_cmd);
   install_element (RMAP_NODE, &no_match_ecommunity_cmd);
   install_element (RMAP_NODE, &no_match_ecommunity_val_cmd);
@@ -3940,6 +4590,9 @@ bgp_route_map_init (void)
   install_element (RMAP_NODE, &match_probability_cmd);
   install_element (RMAP_NODE, &no_match_probability_cmd);
   install_element (RMAP_NODE, &no_match_probability_val_cmd);
+  install_element (RMAP_NODE, &match_tag_cmd);
+  install_element (RMAP_NODE, &no_match_tag_cmd);
+  install_element (RMAP_NODE, &no_match_tag_val_cmd);
 
   install_element (RMAP_NODE, &set_ip_nexthop_cmd);
   install_element (RMAP_NODE, &set_ip_nexthop_peer_cmd);
@@ -3979,6 +4632,14 @@ bgp_route_map_init (void)
   install_element (RMAP_NODE, &set_community_delete_cmd);
   install_element (RMAP_NODE, &no_set_community_delete_cmd);
   install_element (RMAP_NODE, &no_set_community_delete_val_cmd);
+  install_element (RMAP_NODE, &set_lcommunity_cmd);
+  install_element (RMAP_NODE, &set_lcommunity_none_cmd);
+  install_element (RMAP_NODE, &no_set_lcommunity_cmd);
+  install_element (RMAP_NODE, &no_set_lcommunity_val_cmd);
+  install_element (RMAP_NODE, &no_set_lcommunity_none_cmd);
+  install_element (RMAP_NODE, &set_lcommunity_delete_cmd);
+  install_element (RMAP_NODE, &no_set_lcommunity_delete_cmd);
+  install_element (RMAP_NODE, &no_set_lcommunity_delete_val_cmd);
   install_element (RMAP_NODE, &set_ecommunity_rt_cmd);
   install_element (RMAP_NODE, &no_set_ecommunity_rt_cmd);
   install_element (RMAP_NODE, &no_set_ecommunity_rt_val_cmd);
@@ -3991,6 +4652,9 @@ bgp_route_map_init (void)
   install_element (RMAP_NODE, &set_originator_id_cmd);
   install_element (RMAP_NODE, &no_set_originator_id_cmd);
   install_element (RMAP_NODE, &no_set_originator_id_val_cmd);
+  install_element (RMAP_NODE, &set_tag_cmd);
+  install_element (RMAP_NODE, &no_set_tag_cmd);
+  install_element (RMAP_NODE, &no_set_tag_val_cmd);
 
   route_map_install_match (&route_match_ipv6_address_cmd);
   route_map_install_match (&route_match_ipv6_next_hop_cmd);

@@ -120,13 +120,6 @@ ospf6_zebra_if_del (int command, struct zclient *zclient, zebra_size_t length,
     zlog_debug ("Zebra Interface delete: %s index %d mtu %d",
 		ifp->name, ifp->ifindex, ifp->mtu6);
 
-#if 0
-  /* XXX: ospf6_interface_if_del is not the right way to handle this,
-   * because among other thinkable issues, it will also clear all
-   * settings as they are contained in the struct ospf6_interface. */
-  ospf6_interface_if_del (ifp);
-#endif /*0*/
-
   ifp->ifindex = IFINDEX_INTERNAL;
   return 0;
 }
@@ -254,6 +247,11 @@ ospf6_zebra_read_ipv6 (int command, struct zclient *zclient,
   else
     api.metric = 0;
 
+  if (CHECK_FLAG (api.message, ZAPI_MESSAGE_TAG))
+    api.tag = stream_getl (s);
+  else
+    api.tag = 0;
+
   if (IS_OSPF6_DEBUG_ZEBRA (RECV))
     {
       char prefixstr[128], nexthopstr[128];
@@ -263,14 +261,14 @@ ospf6_zebra_read_ipv6 (int command, struct zclient *zclient,
       else
         snprintf (nexthopstr, sizeof (nexthopstr), "::");
 
-      zlog_debug ("Zebra Receive route %s: %s %s nexthop %s ifindex %ld",
+      zlog_debug ("Zebra Receive route %s: %s %s nexthop %s ifindex %ld tag %u",
 		  (command == ZEBRA_IPV6_ROUTE_ADD ? "add" : "delete"),
-		  zebra_route_string(api.type), prefixstr, nexthopstr, ifindex);
+		  zebra_route_string(api.type), prefixstr, nexthopstr, ifindex, api.tag);
     }
  
   if (command == ZEBRA_IPV6_ROUTE_ADD)
     ospf6_asbr_redistribute_add (api.type, ifindex, (struct prefix *) &p,
-                                 api.nexthop_num, nexthop);
+                                 api.nexthop_num, nexthop, api.tag);
   else
     ospf6_asbr_redistribute_remove (api.type, ifindex, (struct prefix *) &p);
 
@@ -477,7 +475,12 @@ ospf6_zebra_route_update (int type, struct ospf6_route *request)
   SET_FLAG (api.message, ZAPI_MESSAGE_METRIC);
   api.metric = (request->path.metric_type == 2 ?
                 request->path.cost_e2 : request->path.cost);
-
+  if (request->path.tag)
+    {
+      SET_FLAG (api.message, ZAPI_MESSAGE_TAG);
+      api.tag = request->path.tag;
+    }
+  
   dest = (struct prefix_ipv6 *) &request->prefix;
   if (type == REM)
     ret = zapi_ipv6_route (ZEBRA_IPV6_ROUTE_DELETE, zclient, dest, &api);
@@ -579,6 +582,147 @@ ospf6_zebra_connected (struct zclient *zclient)
   zclient_send_requests (zclient, VRF_DEFAULT);
 }
 
+static struct ospf6_distance *
+ospf6_distance_new (void)
+{
+  return XCALLOC (MTYPE_OSPF6_DISTANCE, sizeof (struct ospf6_distance));
+}
+
+static void
+ospf6_distance_free (struct ospf6_distance *odistance)
+{
+  XFREE (MTYPE_OSPF6_DISTANCE, odistance);
+}
+
+int
+ospf6_distance_set (struct vty *vty, struct ospf6 *o,
+                    const char *distance_str,
+                    const char *ip_str,
+                    const char *access_list_str)
+{
+  int ret;
+  struct prefix_ipv6 p;
+  u_char distance;
+  struct route_node *rn;
+  struct ospf6_distance *odistance;
+
+  ret = str2prefix_ipv6 (ip_str, &p);
+  if (ret == 0)
+    {
+      vty_out (vty, "Malformed prefix%s", VTY_NEWLINE);
+      return CMD_WARNING;
+    }
+
+  distance = atoi (distance_str);
+
+  /* Get OSPF6 distance node. */
+  rn = route_node_get (o->distance_table, (struct prefix *) &p);
+  if (rn->info)
+    {
+      odistance = rn->info;
+      route_unlock_node (rn);
+    }
+  else
+    {
+      odistance = ospf6_distance_new ();
+      rn->info = odistance;
+    }
+
+  /* Set distance value. */
+  odistance->distance = distance;
+
+  /*Reset access-list configuration. */
+  if (odistance->access_list)
+    {
+      free (odistance->access_list);
+      odistance->access_list = NULL;
+    }
+  if (access_list_str)
+    odistance->access_list = strdup (access_list_str);
+
+  return CMD_SUCCESS;
+}
+
+int
+ospf6_distance_unset (struct vty *vty, struct ospf6 *o,
+                      const char *ip_str,
+                      const char *access_list_str)
+{
+  int ret;
+  struct prefix_ipv6 p;
+  struct route_node *rn;
+  struct ospf6_distance *odistance;
+
+  ret = str2prefix_ipv6 (ip_str, &p);
+  if (ret == 0)
+    {
+      vty_out (vty, "Malformed prefix%s", VTY_NEWLINE);
+      return CMD_WARNING;
+    }
+
+  rn = route_node_lookup (o->distance_table, (struct prefix *) &p);
+  if (!rn)
+    {
+      vty_out (vty, "Cant't find specified prefix%s", VTY_NEWLINE);
+      return CMD_WARNING;
+    }
+
+  odistance = rn->info;
+
+  if (odistance->access_list)
+    free (odistance->access_list);
+  ospf6_distance_free (odistance);
+
+  rn->info = NULL;
+  route_unlock_node (rn);
+  route_unlock_node (rn);
+
+  return CMD_SUCCESS;
+}
+
+void
+ospf6_distance_reset (struct ospf6 *o)
+{
+  struct route_node *rn;
+  struct ospf6_distance *odistance;
+
+  for (rn = route_top (o->distance_table); rn; rn = route_next (rn))
+    if ((odistance = rn->info) != NULL)
+      {
+        if (odistance->access_list)
+          free (odistance->access_list);
+        ospf6_distance_free (odistance);
+        rn->info = NULL;
+        route_unlock_node (rn);
+      }
+}
+
+u_char
+ospf6_distance_apply (struct ospf6_route *or, struct ospf6 *o)
+{
+
+  if (o == NULL)
+    return 0;
+
+  if (o->distance_intra)
+    if (or->path.type == OSPF6_PATH_TYPE_INTRA)
+      return o->distance_intra;
+
+  if (o->distance_inter)
+    if (or->path.type == OSPF6_PATH_TYPE_INTER)
+      return o->distance_inter;
+
+  if (o->distance_external)
+    if(or->path.type == OSPF6_PATH_TYPE_EXTERNAL1
+       || or->path.type == OSPF6_PATH_TYPE_EXTERNAL2)
+      return o->distance_external;
+
+  if (o->distance_all)
+    return o->distance_all;
+
+  return 0;
+}
+
 void
 ospf6_zebra_init (struct thread_master *master)
 {
@@ -606,7 +750,6 @@ ospf6_zebra_init (struct thread_master *master)
 
   /* Install command element for zebra node. */
   install_element (VIEW_NODE, &show_zebra_cmd);
-  install_element (ENABLE_NODE, &show_zebra_cmd);
   install_element (CONFIG_NODE, &router_zebra_cmd);
   install_element (CONFIG_NODE, &no_router_zebra_cmd);
 

@@ -66,6 +66,9 @@ struct attr_extra
 
   /* Extended Communities attribute. */
   struct ecommunity *ecommunity;
+
+  /* Large Communities attribute. */
+  struct lcommunity *lcommunity;
   
   /* Route-Reflector Cluster attribute */
   struct cluster_list *cluster;
@@ -74,7 +77,6 @@ struct attr_extra
   struct transit *transit;
 
   struct in_addr mp_nexthop_global_in;
-  struct in_addr mp_nexthop_local_in;
   
   /* Aggregator Router ID attribute */
   struct in_addr aggregator_addr;
@@ -93,6 +95,9 @@ struct attr_extra
 
   uint16_t			encap_tunneltype;	/* grr */
   struct bgp_attr_encap_subtlv *encap_subtlvs;		/* rfc5512 */
+
+  /* route tag */
+  route_tag_t tag;
 };
 
 /* BGP core attribute structure. */
@@ -166,7 +171,7 @@ extern struct attr *bgp_attr_default_set (struct attr *attr, u_char);
 extern struct attr *bgp_attr_default_intern (u_char);
 extern struct attr *bgp_attr_aggregate_intern (struct bgp *, u_char,
                                         struct aspath *, 
-                                        struct community *, int as_set);
+                                        struct community *, int as_set, u_char);
 extern bgp_size_t bgp_packet_attribute (struct bgp *bgp, struct peer *,
 					struct stream *, struct attr *,
 					struct prefix *, afi_t, safi_t,

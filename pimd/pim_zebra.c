@@ -51,23 +51,6 @@ static int del_oif(struct channel_oil *channel_oil,
 		   struct interface *oif,
 		   uint32_t proto_mask);
 
-#if 0
-static void zclient_broken(struct zclient *zclient)
-{
-  struct listnode  *ifnode;
-  struct interface *ifp;
-
-  zlog_warn("%s %s: broken zclient connection",
-	    __FILE__, __PRETTY_FUNCTION__);
-
-  for (ALL_LIST_ELEMENTS_RO(iflist, ifnode, ifp)) {
-    pim_if_addr_del_all(ifp);
-  }
-
-  /* upon return, zclient will discard connected addresses */
-}
-#endif
-
 /* Router-id update message from zebra. */
 static int pim_router_id_update_zebra(int command, struct zclient *zclient,
 				      zebra_size_t length, vrf_id_t vrf_id)
@@ -341,10 +324,10 @@ static void scan_upstream_rpf_cache()
   struct pim_upstream *up;
 
   for (ALL_LIST_ELEMENTS(qpim_upstream_list, up_node, up_nextnode, up)) {
-    struct in_addr      old_rpf_addr;
+    struct pim_rpf		old_rpf;
     enum pim_rpf_result rpf_result;
 
-    rpf_result = pim_rpf_update(up, &old_rpf_addr);
+    rpf_result = pim_rpf_update(up, &old_rpf);
     if (rpf_result == PIM_RPF_FAILURE)
       continue;
 
@@ -368,8 +351,8 @@ static void scan_upstream_rpf_cache()
 
     
 	/* send Prune(S,G) to the old upstream neighbor */
-	pim_joinprune_send(up->rpf.source_nexthop.interface,
-			   old_rpf_addr,
+	pim_joinprune_send(old_rpf.source_nexthop.interface,
+			   old_rpf.rpf_addr,
 			   up->source_addr,
 			   up->group_addr,
 			   0 /* prune */);
@@ -598,6 +581,11 @@ static int redist_read_ipv4_route(int command, struct zclient *zclient,
   api.metric = CHECK_FLAG(api.message, ZAPI_MESSAGE_METRIC) ?
     stream_getl(s) :
     0;
+
+  if (CHECK_FLAG (api.message, ZAPI_MESSAGE_TAG))
+    api.tag = stream_getl (s);
+  else
+    api.tag = 0;
 
   switch (command) {
   case ZEBRA_IPV4_ROUTE_ADD:
