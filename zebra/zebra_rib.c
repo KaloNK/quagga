@@ -1693,7 +1693,7 @@ int
 rib_add_ipv4 (int type, int flags, struct prefix_ipv4 *p, 
 	      struct in_addr *gate, struct in_addr *src,
 	      ifindex_t ifindex, vrf_id_t vrf_id, int table_id,
-	      u_int32_t metric, u_int32_t mtu, u_char distance, safi_t safi)
+	      u_int32_t metric, u_int32_t mtu, u_char distance, route_tag_t tag, safi_t safi)
 {
   struct rib *rib;
   struct rib *same = NULL;
@@ -1757,6 +1757,7 @@ rib_add_ipv4 (int type, int flags, struct prefix_ipv4 *p,
   rib->flags = flags;
   rib->metric = metric;
   rib->mtu = mtu;
+  rib->tag = tag;
   rib->vrf_id = vrf_id;
   rib->table = table_id;
   rib->nexthop_num = 0;

@@ -326,6 +326,8 @@ AC_ARG_ENABLE(configfile_mask,
   AS_HELP_STRING([--enable-configfile-mask=ARG], [set mask for config files]))
 AC_ARG_ENABLE(logfile_mask,
   AS_HELP_STRING([--enable-logfile-mask=ARG], [set mask for log files]))
+AC_ARG_ENABLE(realms,
+  AS_HELP_STRING([--enable-realms], [enable REALMS support under Linux and convert tags to realms]))
 
 AC_ARG_ENABLE(rtadv,
   AS_HELP_STRING([--disable-rtadv], [disable IPV6 router advertisement feature]))
@@ -733,6 +735,18 @@ case "$host" in
 esac
 
 AC_SYS_LARGEFILE
+
+dnl ------------------------
+dnl Enabled REALMS option
+dnl ------------------------
+if test "${enable_realms}" = "yes"; then
+    if test "${opsys}" != "gnu-linux"; then
+       echo "Sorry, only Linux has REALMS support"
+       exit 1
+    fi
+    AC_DEFINE(TAGS_TO_REALMS,, Realms support)
+fi
+AM_CONDITIONAL([TAGS_TO_REALMS], [test "${enable_realms}" = "yes"])
 
 dnl ---------------------
 dnl Integrated VTY option

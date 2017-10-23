@@ -424,7 +424,7 @@ extern struct route_table *zebra_vrf_static_table (afi_t, safi_t, vrf_id_t);
 extern int rib_add_ipv4 (int type, int flags, struct prefix_ipv4 *p, 
 			 struct in_addr *gate, struct in_addr *src,
 			 ifindex_t ifindex, vrf_id_t vrf_id, int table_id,
-			 u_int32_t, u_int32_t, u_char, safi_t);
+			 u_int32_t, u_int32_t, u_char, route_tag_t, safi_t);
 
 extern int rib_add_ipv4_multipath (struct prefix_ipv4 *, struct rib *, safi_t);
 
